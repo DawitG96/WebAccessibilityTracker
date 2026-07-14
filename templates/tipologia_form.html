@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+{% block title %}{{ 'Modifica' if ctype else 'Nuova' }} tipologia — Accessibility Tracker{% endblock %}
+{% block content %}
+<p class="breadcrumb"><a href="{{ url_for('types_list') }}">Tipologie componenti</a> › {{ ctype.name if ctype else 'Nuova' }}</p>
+<h1>{{ 'Modifica tipologia' if ctype else 'Nuova tipologia' }}</h1>
+
+<form method="post" class="card">
+  <div class="form-row">
+    <div>
+      <label for="t-name">Nome *</label>
+      <input type="text" id="t-name" name="name" required value="{{ ctype.name if ctype else '' }}">
+    </div>
+  </div>
+  <label for="t-desc">Descrizione</label>
+  <textarea id="t-desc" name="description">{{ ctype.description if ctype else '' }}</textarea>
+  <label for="t-aria">Riferimenti WAI-ARIA (ruoli, stati, proprietà)</label>
+  <textarea id="t-aria" name="aria_notes">{{ ctype.aria_notes if ctype else '' }}</textarea>
+
+  <h2>Criteri WCAG applicabili</h2>
+  <p class="report-meta">Questi criteri verranno proposti automaticamente per ogni nuovo componente di questa tipologia.</p>
+  <table>
+    <thead><tr><th scope="col">Applica</th><th scope="col">Criterio</th><th scope="col">Livello</th><th scope="col">Principio</th></tr></thead>
+    <tbody>
+      {% for c in criteria %}
+      <tr>
+        <td><input type="checkbox" id="crit-{{ c.id }}" name="criteria" value="{{ c.id }}"
+                   {% if c.id in selected %}checked{% endif %}></td>
+        <td><label for="crit-{{ c.id }}" style="font-weight:400">{{ c.code }} {{ c.title }}</label></td>
+        <td><span class="badge b-level">{{ c.level }}</span></td>
+        <td>{{ c.principle }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  <div class="save-bar">
+    <button type="submit">💾 Salva tipologia</button>
+    <a class="btn btn-secondary" href="{{ url_for('types_list') }}">Annulla</a>
+  </div>
+</form>
+{% endblock %}

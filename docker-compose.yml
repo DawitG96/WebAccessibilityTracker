@@ -1,0 +1,9 @@
+services:
+  webapp:
+    build: .
+    container_name: accessibility-tracker
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./data:/app/data
+    restart: unless-stopped

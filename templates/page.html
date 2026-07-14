@@ -1,0 +1,76 @@
+{% extends "base.html" %}
+{% block title %}{{ page.name }} — {{ page.project_name }}{% endblock %}
+{% block content %}
+<p class="breadcrumb">
+  <a href="{{ url_for('index') }}">Progetti</a> ›
+  <a href="{{ url_for('project_detail', project_id=page.project_id) }}">{{ page.project_name }}</a> ›
+  {{ page.name }}
+</p>
+<h1>{{ page.name }}</h1>
+{% if page.url %}<p><a href="{{ page.url }}" target="_blank" rel="noopener">{{ page.url }}</a></p>{% endif %}
+{% if page.notes %}<p>{{ page.notes }}</p>{% endif %}
+
+<h2>Componenti rilevati ({{ components|length }})</h2>
+{% if components %}
+<table>
+  <thead>
+    <tr><th scope="col">Componente</th><th scope="col">Tipologia</th><th scope="col">Criteri</th>
+        <th scope="col">Esito</th><th scope="col">Azioni</th></tr>
+  </thead>
+  <tbody>
+    {% for c in components %}
+    <tr>
+      <td><a href="{{ url_for('component_detail', component_id=c.id) }}">{{ c.name }}</a>
+          {% if c.location %}<br><small>{{ c.location }}</small>{% endif %}</td>
+      <td>{{ c.type_name }}</td>
+      <td>{{ c.n_criteri }}</td>
+      <td>
+        <span class="badge b-conforme">{{ c.n_conformi }} ✓</span>
+        <span class="badge b-non_conforme">{{ c.n_anomalie }} ✗</span>
+        <span class="badge b-da_verificare">{{ c.n_da_verificare }} ?</span>
+      </td>
+      <td>
+        <form class="inline" method="post" action="{{ url_for('delete_component', component_id=c.id) }}"
+              onsubmit="return confirm('Eliminare il componente «{{ c.name }}» e le sue valutazioni?')">
+          <button type="submit" class="btn-danger btn-sm">Elimina</button>
+        </form>
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<p>Nessun componente ancora rilevato su questa pagina.</p>
+{% endif %}
+
+<div class="card">
+  <h2 style="margin-top:0">Aggiungi componente</h2>
+  <p class="report-meta">Alla creazione verrà generata automaticamente la checklist dei criteri WCAG applicabili alla tipologia scelta.</p>
+  <form method="post" action="{{ url_for('new_component', page_id=page.id) }}">
+    <div class="form-row">
+      <div>
+        <label for="c-name">Nome componente *</label>
+        <input type="text" id="c-name" name="name" required placeholder="es. Bottone 'Invia', Menu principale…">
+      </div>
+      <div>
+        <label for="c-type">Tipologia *</label>
+        <select id="c-type" name="component_type_id" required>
+          <option value="">— Seleziona —</option>
+          {% for t in types %}
+          <option value="{{ t.id }}">{{ t.name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+    </div>
+    <div class="form-row">
+      <div>
+        <label for="c-loc">Posizione / selettore (facoltativo)</label>
+        <input type="text" id="c-loc" name="location" placeholder="es. header, footer, #main .cta…">
+      </div>
+    </div>
+    <label for="c-notes">Note</label>
+    <textarea id="c-notes" name="notes"></textarea>
+    <p><button type="submit">Aggiungi componente</button></p>
+  </form>
+</div>
+{% endblock %}

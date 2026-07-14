@@ -1,0 +1,120 @@
+{% extends "base.html" %}
+{% block title %}{{ comp.name }} — {{ comp.page_name }}{% endblock %}
+{% block content %}
+<p class="breadcrumb">
+  <a href="{{ url_for('index') }}">Progetti</a> ›
+  <a href="{{ url_for('project_detail', project_id=comp.project_id) }}">{{ comp.project_name }}</a> ›
+  <a href="{{ url_for('page_detail', page_id=comp.page_id) }}">{{ comp.page_name }}</a> ›
+  {{ comp.name }}
+</p>
+<h1>{{ comp.name }} <span class="badge b-level">{{ comp.type_name }}</span></h1>
+{% if comp.location %}<p class="report-meta">Posizione: {{ comp.location }}</p>{% endif %}
+{% if comp.notes %}<p>{{ comp.notes }}</p>{% endif %}
+
+{% if comp.aria_notes %}
+<div class="aria-box">
+  <strong>Riferimenti WAI-ARIA per questa tipologia:</strong> {{ comp.aria_notes }}
+</div>
+{% endif %}
+
+<h2>Checklist criteri di successo ({{ evals|length }})</h2>
+<form method="post" action="{{ url_for('save_evaluations', component_id=comp.id) }}">
+  <table>
+    <thead>
+      <tr>
+        <th scope="col" style="width:26%">Criterio</th>
+        <th scope="col">Esito</th>
+        <th scope="col" style="width:16%">Stato lavorazione</th>
+        <th scope="col" style="width:30%">Motivazione / note</th>
+        <th scope="col"><span class="sr-only">Rimuovi</span></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for e in evals %}
+      <tr class="crit-row">
+        <td>
+          <strong><a href="{{ WCAG_BASE_URL }}{{ e.anchor }}" target="_blank" rel="noopener">{{ e.code }}</a></strong>
+          {{ e.title }}<br>
+          <span class="badge b-level">{{ e.level }}</span>
+          <small>{{ e.principle }}</small>
+        </td>
+        <td>
+          <fieldset>
+            <legend>Esito per il criterio {{ e.code }}</legend>
+            <div class="crit-status">
+              {% for val, lab in STATUS_LABELS.items() %}
+              <label>
+                <input type="radio" name="status_{{ e.id }}" value="{{ val }}"
+                       {% if e.status == val %}checked{% endif %}>
+                {{ lab }}
+              </label>
+              {% endfor %}
+            </div>
+          </fieldset>
+        </td>
+        <td>
+          <label class="sr-only" for="work_{{ e.id }}">Stato lavorazione per {{ e.code }}</label>
+          <select name="work_{{ e.id }}" id="work_{{ e.id }}">
+            {% for val, lab in WORK_LABELS.items() %}
+            <option value="{{ val }}" {% if e.work_status == val %}selected{% endif %}>{{ lab }}</option>
+            {% endfor %}
+          </select>
+        </td>
+        <td class="crit-note">
+          <label class="sr-only" for="note_{{ e.id }}">Note per {{ e.code }}</label>
+          <textarea name="note_{{ e.id }}" id="note_{{ e.id }}"
+                    placeholder="Perché non è conforme? Come riprodurre?">{{ e.note }}</textarea>
+        </td>
+        <td>
+          <button type="submit" class="btn-danger btn-sm"
+                  formaction="{{ url_for('remove_evaluation', eval_id=e.id) }}"
+                  formnovalidate
+                  onclick="return confirm('Rimuovere il criterio {{ e.code }} dalla checklist di questo componente?')">✕</button>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  <div class="save-bar">
+    <button type="submit">💾 Salva tutte le valutazioni</button>
+  </div>
+</form>
+
+{% if remaining %}
+<div class="card">
+  <h2 style="margin-top:0">Aggiungi un altro criterio alla checklist</h2>
+  <form method="post" action="{{ url_for('add_criterion', component_id=comp.id) }}" class="form-row">
+    <div>
+      <label for="add-crit">Criterio</label>
+      <select name="criterion_id" id="add-crit" required>
+        <option value="">— Seleziona —</option>
+        {% for c in remaining %}
+        <option value="{{ c.id }}">{{ c.code }} {{ c.title }} ({{ c.level }})</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div style="align-self:end"><button type="submit">Aggiungi</button></div>
+  </form>
+</div>
+{% endif %}
+
+{% if history %}
+<details class="history card">
+  <summary>Storico modifiche recenti ({{ history|length }})</summary>
+  <table style="margin-top:.8rem">
+    <thead><tr><th scope="col">Data</th><th scope="col">Criterio</th><th scope="col">Esito</th><th scope="col">Lavorazione</th><th scope="col">Nota</th></tr></thead>
+    <tbody>
+      {% for h in history %}
+      <tr>
+        <td>{{ h.changed_at }}</td>
+        <td>{{ h.code }}</td>
+        <td>{{ STATUS_LABELS.get(h.old_status, h.old_status) }} → <strong>{{ STATUS_LABELS.get(h.new_status, h.new_status) }}</strong></td>
+        <td>{{ WORK_LABELS.get(h.old_work_status, h.old_work_status) }} → {{ WORK_LABELS.get(h.new_work_status, h.new_work_status) }}</td>
+        <td>{{ h.note }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</details>
+{% endif %}
+{% endblock %}

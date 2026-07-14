@@ -1,0 +1,80 @@
+{% extends "base.html" %}
+{% block title %}Report anomalie — {{ project.name }}{% endblock %}
+{% block content %}
+<div class="report-header">
+  <p class="breadcrumb no-print"><a href="{{ url_for('index') }}">Progetti</a> ›
+     <a href="{{ url_for('project_detail', project_id=project.id) }}">{{ project.name }}</a> › Report</p>
+  <h1>Report di valutazione dell'accessibilità</h1>
+  <p><strong>{{ project.name }}</strong>{% if project.url %} — {{ project.url }}{% endif %}</p>
+  <p class="report-meta">Standard di riferimento: WCAG 2.2, livelli A e AA · Stato progetto: {{ project.status }} · Generato il {{ generated }}</p>
+</div>
+
+<div class="report-actions">
+  <button type="button" onclick="window.print()">🖨️ Stampa / salva PDF</button>
+  <a class="btn btn-secondary" href="{{ url_for('export_csv', project_id=project.id) }}">Esporta CSV</a>
+  <a class="btn btn-secondary" href="{{ url_for('export_xlsx', project_id=project.id) }}">Esporta Excel</a>
+</div>
+
+<div class="card">
+  <h2 style="margin-top:0">Sintesi</h2>
+  <div class="stat-strip">
+    <span>Verifiche totali: <strong>{{ stats.totale }}</strong></span>
+    <span class="badge b-conforme">{{ stats.conformi }} conformi</span>
+    <span class="badge b-non_conforme">{{ stats.non_conformi }} non conformi</span>
+    <span class="badge b-da_verificare">{{ stats.da_verificare }} da verificare</span>
+    <span class="badge b-non_applicabile">{{ stats.non_applicabili }} non applicabili</span>
+  </div>
+  <p>
+    Conformità sui criteri valutati: <strong>{{ stats.pct_conformi }}%</strong> ·
+    Anomalie risolte: <strong>{{ stats.risolte }} su {{ stats.non_conformi }}</strong>
+    {% if stats.da_verificare %} · <em>Attenzione: {{ stats.da_verificare }} verifiche ancora da completare.</em>{% endif %}
+  </p>
+  {% if violated %}
+  <h3>Criteri di successo violati ({{ violated|length }})</h3>
+  <ul>
+    {% for v in violated %}
+    <li><strong>{{ v.code }}</strong> {{ v.title }} <span class="badge b-level">{{ v.level }}</span></li>
+    {% endfor %}
+  </ul>
+  {% endif %}
+</div>
+
+<h2>Dettaglio anomalie ({{ anomalies|length }})</h2>
+{% if anomalies %}
+  {% for a in anomalies %}
+  {% if loop.first or a.page_id != loop.previtem.page_id %}
+  <h3>Pagina: {{ a.page_name }}{% if a.page_url %} <small>({{ a.page_url }})</small>{% endif %}</h3>
+  {% endif %}
+  <div class="card">
+    <p style="margin-top:0">
+      <strong>{{ a.component_name }}</strong> <span class="badge b-level">{{ a.type_name }}</span>
+      {% if a.location %}<small> · {{ a.location }}</small>{% endif %}
+    </p>
+    <p>
+      <strong><a href="{{ WCAG_BASE_URL }}{{ a.anchor }}" target="_blank" rel="noopener">{{ a.code }} {{ a.title }}</a></strong>
+      <span class="badge b-level">Livello {{ a.level }}</span>
+      <span class="badge b-{{ a.work_status or 'aperta' }}">{{ WORK_LABELS.get(a.work_status, a.work_status) or 'Aperta' }}</span>
+    </p>
+    {% if a.note %}<p><strong>Motivazione:</strong> {{ a.note }}</p>{% endif %}
+    <p class="report-meta">Ultimo aggiornamento: {{ a.updated_at }}</p>
+    {% set h = histories.get(a.eval_id) %}
+    {% if h %}
+    <details class="history">
+      <summary>Storico aggiornamenti ({{ h|length }})</summary>
+      <ul>
+        {% for row in h %}
+        <li>{{ row.changed_at }}: {{ STATUS_LABELS.get(row.old_status, row.old_status) }}
+            {% if row.old_work_status %}({{ WORK_LABELS.get(row.old_work_status, row.old_work_status) }}){% endif %}
+            → <strong>{{ STATUS_LABELS.get(row.new_status, row.new_status) }}
+            {% if row.new_work_status %}({{ WORK_LABELS.get(row.new_work_status, row.new_work_status) }}){% endif %}</strong>
+            {% if row.note %} — {{ row.note }}{% endif %}</li>
+        {% endfor %}
+      </ul>
+    </details>
+    {% endif %}
+  </div>
+  {% endfor %}
+{% else %}
+<p>🎉 Nessuna anomalia registrata per questo progetto{% if stats.da_verificare %} (ma restano {{ stats.da_verificare }} verifiche da completare){% endif %}.</p>
+{% endif %}
+{% endblock %}

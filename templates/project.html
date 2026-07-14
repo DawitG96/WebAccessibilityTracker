@@ -1,0 +1,114 @@
+{% extends "base.html" %}
+{% block title %}{{ project.name }} — Accessibility Tracker{% endblock %}
+{% block content %}
+<p class="breadcrumb"><a href="{{ url_for('index') }}">Progetti</a> › {{ project.name }}</p>
+<h1>{{ project.name }}</h1>
+{% if project.url %}<p><a href="{{ project.url }}" target="_blank" rel="noopener">{{ project.url }}</a></p>{% endif %}
+{% if project.description %}<p>{{ project.description }}</p>{% endif %}
+
+<div class="card">
+  <div class="stat-strip">
+    <span>Verifiche totali: <strong>{{ stats.totale }}</strong></span>
+    <span class="badge b-conforme">{{ stats.conformi }} conformi</span>
+    <span class="badge b-non_conforme">{{ stats.non_conformi }} non conformi</span>
+    <span class="badge b-da_verificare">{{ stats.da_verificare }} da verificare</span>
+    <span class="badge b-non_applicabile">{{ stats.non_applicabili }} non applicabili</span>
+    <span>Anomalie risolte: <strong>{{ stats.risolte }}/{{ stats.non_conformi }}</strong></span>
+  </div>
+  {% if stats.totale %}
+  <div class="progress" role="progressbar" aria-valuenow="{{ stats.pct_avanzamento }}" aria-valuemin="0" aria-valuemax="100" aria-label="Avanzamento valutazione">
+    <span style="width: {{ stats.pct_avanzamento }}%"></span>
+  </div>
+  <p class="report-meta">Avanzamento valutazione: {{ stats.pct_avanzamento }}% · Conformità sui criteri valutati: {{ stats.pct_conformi }}%</p>
+  {% endif %}
+  <div class="report-actions">
+    <a class="btn" href="{{ url_for('report', project_id=project.id) }}">📄 Report anomalie</a>
+    <a class="btn btn-secondary" href="{{ url_for('export_csv', project_id=project.id) }}">Esporta CSV</a>
+    <a class="btn btn-secondary" href="{{ url_for('export_xlsx', project_id=project.id) }}">Esporta Excel</a>
+  </div>
+</div>
+
+<h2>Pagine ({{ pages|length }})</h2>
+{% if pages %}
+<table>
+  <caption class="sr-only">Elenco pagine del progetto</caption>
+  <thead>
+    <tr><th scope="col">Pagina</th><th scope="col">URL</th><th scope="col">Componenti</th>
+        <th scope="col">Anomalie</th><th scope="col">Da verificare</th><th scope="col">Azioni</th></tr>
+  </thead>
+  <tbody>
+    {% for pg in pages %}
+    <tr>
+      <td><a href="{{ url_for('page_detail', page_id=pg.id) }}">{{ pg.name }}</a></td>
+      <td>{% if pg.url %}<a href="{{ pg.url }}" target="_blank" rel="noopener">{{ pg.url|truncate(40) }}</a>{% endif %}</td>
+      <td>{{ pg.n_componenti }}</td>
+      <td>{% if pg.n_anomalie %}<span class="badge b-non_conforme">{{ pg.n_anomalie }}</span>{% else %}0{% endif %}</td>
+      <td>{% if pg.n_da_verificare %}<span class="badge b-da_verificare">{{ pg.n_da_verificare }}</span>{% else %}0{% endif %}</td>
+      <td>
+        <form class="inline" method="post" action="{{ url_for('delete_page', page_id=pg.id) }}"
+              onsubmit="return confirm('Eliminare la pagina «{{ pg.name }}» e tutti i suoi componenti?')">
+          <button type="submit" class="btn-danger btn-sm">Elimina</button>
+        </form>
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<p>Nessuna pagina ancora. Aggiungi la prima pagina da valutare.</p>
+{% endif %}
+
+<div class="card">
+  <h2 style="margin-top:0">Aggiungi pagina</h2>
+  <form method="post" action="{{ url_for('new_page', project_id=project.id) }}">
+    <div class="form-row">
+      <div>
+        <label for="pg-name">Nome pagina *</label>
+        <input type="text" id="pg-name" name="name" required placeholder="es. Home, Login, Ricerca…">
+      </div>
+      <div>
+        <label for="pg-url">URL</label>
+        <input type="url" id="pg-url" name="url" placeholder="https://…">
+      </div>
+    </div>
+    <label for="pg-notes">Note</label>
+    <textarea id="pg-notes" name="notes"></textarea>
+    <p><button type="submit">Aggiungi pagina</button></p>
+  </form>
+</div>
+
+<details class="card">
+  <summary>Impostazioni progetto</summary>
+  <form method="post" action="{{ url_for('edit_project', project_id=project.id) }}" style="margin-top:1rem">
+    <div class="form-row">
+      <div>
+        <label for="ep-name">Nome *</label>
+        <input type="text" id="ep-name" name="name" value="{{ project.name }}" required>
+      </div>
+      <div>
+        <label for="ep-status">Stato progetto</label>
+        <select id="ep-status" name="status">
+          {% for st in PROJECT_STATUSES %}
+          <option value="{{ st }}" {% if project.status == st %}selected{% endif %}>{{ st }}</option>
+          {% endfor %}
+        </select>
+      </div>
+    </div>
+    <div class="form-row">
+      <div>
+        <label for="ep-url">URL</label>
+        <input type="url" id="ep-url" name="url" value="{{ project.url }}">
+      </div>
+    </div>
+    <label for="ep-desc">Descrizione</label>
+    <textarea id="ep-desc" name="description">{{ project.description }}</textarea>
+    <p>
+      <button type="submit">Salva modifiche</button>
+    </p>
+  </form>
+  <form method="post" action="{{ url_for('delete_project', project_id=project.id) }}"
+        onsubmit="return confirm('Eliminare definitivamente il progetto «{{ project.name }}» con tutte le pagine e valutazioni?')">
+    <button type="submit" class="btn-danger">Elimina progetto</button>
+  </form>
+</details>
+{% endblock %}

@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% block title %}Tipologie componenti — Accessibility Tracker{% endblock %}
+{% block content %}
+<h1>Tipologie di componente</h1>
+<p>Ogni tipologia definisce quali criteri WCAG vengono associati automaticamente ai nuovi componenti e i riferimenti WAI-ARIA da consultare.</p>
+<p><a class="btn" href="{{ url_for('type_form') }}">＋ Nuova tipologia</a></p>
+
+<table>
+  <thead>
+    <tr><th scope="col">Tipologia</th><th scope="col">Descrizione</th>
+        <th scope="col">Criteri associati</th><th scope="col">Azioni</th></tr>
+  </thead>
+  <tbody>
+    {% for t in types %}
+    <tr>
+      <td><strong>{{ t.name }}</strong></td>
+      <td>{{ t.description }}</td>
+      <td>{{ t.n_criteri }}</td>
+      <td>
+        <a class="btn btn-secondary btn-sm" href="{{ url_for('type_form', type_id=t.id) }}">Modifica</a>
+        <form class="inline" method="post" action="{{ url_for('delete_type', type_id=t.id) }}"
+              onsubmit="return confirm('Eliminare la tipologia «{{ t.name }}»?')">
+          <button type="submit" class="btn-danger btn-sm">Elimina</button>
+        </form>
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endblock %}

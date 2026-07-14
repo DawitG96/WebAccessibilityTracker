@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+{% block title %}Progetti — Accessibility Tracker{% endblock %}
+{% block content %}
+<h1>I tuoi progetti</h1>
+
+<div class="card">
+  <h2 style="margin-top:0">Nuovo progetto</h2>
+  <form method="post" action="{{ url_for('new_project') }}">
+    <div class="form-row">
+      <div>
+        <label for="p-name">Nome piattaforma / applicativo *</label>
+        <input type="text" id="p-name" name="name" required>
+      </div>
+      <div>
+        <label for="p-url">URL</label>
+        <input type="url" id="p-url" name="url" placeholder="https://…">
+      </div>
+    </div>
+    <label for="p-desc">Descrizione</label>
+    <textarea id="p-desc" name="description"></textarea>
+    <p><button type="submit">Crea progetto</button></p>
+  </form>
+</div>
+
+{% if projects %}
+<div class="grid">
+  {% for p in projects %}
+  {% set s = stats[p.id] %}
+  <div class="card">
+    <h2 style="margin-top:0"><a href="{{ url_for('project_detail', project_id=p.id) }}">{{ p.name }}</a></h2>
+    <p class="stat-strip">
+      <span class="badge b-level">{{ p.status }}</span>
+      <span>{{ page_counts[p.id] }} pagine</span>
+      <span>{{ s.totale }} verifiche</span>
+    </p>
+    {% if s.totale %}
+    <div class="progress" role="progressbar" aria-valuenow="{{ s.pct_avanzamento }}" aria-valuemin="0" aria-valuemax="100" aria-label="Avanzamento valutazione {{ p.name }}">
+      <span style="width: {{ s.pct_avanzamento }}%"></span>
+    </div>
+    <p class="stat-strip">
+      <span>Avanzamento: <strong>{{ s.pct_avanzamento }}%</strong></span>
+      <span class="badge b-conforme">{{ s.conformi }} conformi</span>
+      <span class="badge b-non_conforme">{{ s.non_conformi }} anomalie</span>
+      <span class="badge b-da_verificare">{{ s.da_verificare }} da verificare</span>
+    </p>
+    {% else %}
+    <p class="report-meta">Nessuna verifica ancora inserita.</p>
+    {% endif %}
+  </div>
+  {% endfor %}
+</div>
+{% else %}
+<p>Nessun progetto ancora: crea il primo qui sopra per iniziare la valutazione.</p>
+{% endif %}
+{% endblock %}

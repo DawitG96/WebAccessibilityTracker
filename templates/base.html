@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{% block title %}Accessibility Tracker{% endblock %}</title>
+<link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+<a class="skip-link" href="#main">Salta al contenuto principale</a>
+<header class="topbar">
+  <div class="container topbar-inner">
+    <a href="{{ url_for('index') }}" class="brand">♿ Accessibility Tracker <span class="brand-sub">WCAG 2.2 · A/AA</span></a>
+    <nav aria-label="Navigazione principale">
+      <a href="{{ url_for('index') }}">Progetti</a>
+      <a href="{{ url_for('types_list') }}">Tipologie componenti</a>
+    </nav>
+  </div>
+</header>
+<main id="main" class="container">
+  {% with messages = get_flashed_messages(with_categories=true) %}
+    {% for cat, msg in messages %}
+      <p class="flash flash-{{ cat }}" role="status">{{ msg }}</p>
+    {% endfor %}
+  {% endwith %}
+  {% block content %}{% endblock %}
+</main>
+<footer class="container footer">
+  <p>Riferimenti: <a href="https://www.w3.org/Translations/WCAG22-it/" target="_blank" rel="noopener">WCAG 2.2 (traduzione italiana)</a> ·
+  <a href="https://www.w3.org/TR/wai-aria/" target="_blank" rel="noopener">WAI-ARIA 1.2</a></p>
+</footer>
+</body>
+</html>
