@@ -2,8 +2,8 @@
 {% block title %}{{ page.name }} — {{ page.project_name }}{% endblock %}
 {% block content %}
 <p class="breadcrumb">
-  <a href="{{ url_for('index') }}">Progetti</a> ›
-  <a href="{{ url_for('project_detail', project_id=page.project_id) }}">{{ page.project_name }}</a> ›
+  <a href="{{ url_for('index') }}">Piattaforme</a> ›
+  <a href="{{ url_for('project_detail', platform_slug=page.platform_slug, project_slug=page.project_slug) }}">{{ page.project_name }}</a> ›
   {{ page.name }}
 </p>
 <h1>{{ page.name }}</h1>

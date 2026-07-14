@@ -1,13 +1,40 @@
 # -*- coding: utf-8 -*-
 """Inizializzazione, migrazione e accesso al database SQLite."""
 import os
+import re
 import sqlite3
+import unicodedata
 
 from wcag_data import AAA_EXTRAS, COMPONENT_TYPES, CRITERIA
 
 DB_PATH = os.environ.get("DB_PATH", os.path.join(os.path.dirname(__file__), "data", "tracker.db"))
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
+
+
+def slugify(text, fallback="elemento"):
+    """Nome → slug URL-safe (minuscole, trattini, senza accenti)."""
+    text = unicodedata.normalize("NFKD", text or "").encode("ascii", "ignore").decode("ascii")
+    text = re.sub(r"[^a-z0-9]+", "-", text.lower()).strip("-")
+    return text or fallback
+
+
+def unique_slug(conn, table, name, scope_col=None, scope_val=None, exclude_id=None, fallback="elemento"):
+    """Genera uno slug univoco nella tabella (eventualmente entro uno scope, es. la piattaforma)."""
+    base = slugify(name, fallback)
+    slug, n = base, 2
+    while True:
+        q, params = f"SELECT id FROM {table} WHERE slug = ?", [slug]
+        if scope_col:
+            q += f" AND {scope_col} = ?"
+            params.append(scope_val)
+        if exclude_id is not None:
+            q += " AND id != ?"
+            params.append(exclude_id)
+        if conn.execute(q, params).fetchone() is None:
+            return slug
+        slug = f"{base}-{n}"
+        n += 1
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS meta (
@@ -18,6 +45,7 @@ CREATE TABLE IF NOT EXISTS meta (
 CREATE TABLE IF NOT EXISTS platforms (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT NOT NULL,
+    slug TEXT,
     description TEXT DEFAULT '',
     created_at TEXT DEFAULT (datetime('now', 'localtime'))
 );
@@ -25,10 +53,11 @@ CREATE TABLE IF NOT EXISTS platforms (
 CREATE TABLE IF NOT EXISTS projects (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT NOT NULL,
+    slug TEXT,
     description TEXT DEFAULT '',
     url TEXT DEFAULT '',
     status TEXT DEFAULT 'In corso',
-    platform_id INTEGER REFERENCES platforms(id) ON DELETE SET NULL,
+    platform_id INTEGER REFERENCES platforms(id),
     created_at TEXT DEFAULT (datetime('now', 'localtime'))
 );
 
@@ -128,6 +157,29 @@ def init_db():
             conn.execute("ALTER TABLE projects ADD COLUMN platform_id INTEGER REFERENCES platforms(id)")
         if "sort_order" not in _columns(conn, "criteria"):
             conn.execute("ALTER TABLE criteria ADD COLUMN sort_order INTEGER DEFAULT 0")
+        if "slug" not in _columns(conn, "platforms"):
+            conn.execute("ALTER TABLE platforms ADD COLUMN slug TEXT")
+        if "slug" not in _columns(conn, "projects"):
+            conn.execute("ALTER TABLE projects ADD COLUMN slug TEXT")
+
+    # --- Migrazione v3: slug negli URL e ogni progetto appartiene a una piattaforma ---
+    # I progetti rimasti senza piattaforma vengono raccolti in una piattaforma "Generale".
+    orphans = conn.execute("SELECT id FROM projects WHERE platform_id IS NULL").fetchall()
+    if orphans:
+        row = conn.execute("SELECT id FROM platforms WHERE name = 'Generale'").fetchone()
+        generale_id = row["id"] if row else conn.execute(
+            "INSERT INTO platforms (name, description) VALUES ('Generale', "
+            "'Piattaforma creata automaticamente per i progetti che ne erano privi.')").lastrowid
+        conn.execute("UPDATE projects SET platform_id = ? WHERE platform_id IS NULL", (generale_id,))
+    for r in conn.execute("SELECT id, name FROM platforms WHERE slug IS NULL OR slug = ''").fetchall():
+        conn.execute("UPDATE platforms SET slug = ? WHERE id = ?",
+                     (unique_slug(conn, "platforms", r["name"], fallback="piattaforma"), r["id"]))
+    for r in conn.execute("SELECT id, name, platform_id FROM projects WHERE slug IS NULL OR slug = ''").fetchall():
+        conn.execute("UPDATE projects SET slug = ? WHERE id = ?",
+                     (unique_slug(conn, "projects", r["name"], "platform_id", r["platform_id"],
+                                  fallback="progetto"), r["id"]))
+    conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS ux_platforms_slug ON platforms(slug)")
+    conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS ux_projects_platform_slug ON projects(platform_id, slug)")
 
     # --- Seed / aggiornamento criteri WCAG (non duplica, aggiorna titoli e ordine) ---
     for i, (code, title, level, principle, anchor) in enumerate(CRITERIA):

@@ -7,7 +7,7 @@ import os
 from flask import (Flask, flash, redirect, render_template, request,
                    send_file, url_for)
 
-from database import get_db, init_db
+from database import get_db, init_db, unique_slug
 from wcag_data import WCAG_BASE_URL
 
 app = Flask(__name__)
@@ -74,131 +74,172 @@ def platform_stats(db, platform_id):
 
 
 # ---------------------------------------------------------------- Dashboard
+def _get_platform(db, slug):
+    return db.execute("SELECT * FROM platforms WHERE slug = ?", (slug,)).fetchone()
+
+
+def _get_project(db, platform_slug, project_slug):
+    return db.execute("""SELECT p.*, pl.name AS platform_name, pl.slug AS platform_slug
+                         FROM projects p JOIN platforms pl ON pl.id = p.platform_id
+                         WHERE pl.slug = ? AND p.slug = ?""",
+                      (platform_slug, project_slug)).fetchone()
+
+
 @app.route("/")
 def index():
     db = get_db()
     platforms = db.execute("SELECT * FROM platforms ORDER BY name").fetchall()
-    projects = db.execute("""SELECT p.*, pl.name AS platform_name FROM projects p
-                             LEFT JOIN platforms pl ON pl.id = p.platform_id
-                             ORDER BY p.created_at DESC""").fetchall()
-    stats = {p["id"]: project_stats(db, p["id"]) for p in projects}
-    counts = {p["id"]: db.execute(
-        "SELECT COUNT(*) FROM pages WHERE project_id = ?", (p["id"],)).fetchone()[0]
-        for p in projects}
+    agg = {pl["id"]: platform_stats(db, pl["id"]) for pl in platforms}
+    counts = {pl["id"]: db.execute(
+        "SELECT COUNT(*) FROM projects WHERE platform_id = ?", (pl["id"],)).fetchone()[0]
+        for pl in platforms}
     db.close()
-    return render_template("index.html", platforms=platforms, projects=projects,
-                           stats=stats, page_counts=counts)
+    return render_template("index.html", platforms=platforms, agg=agg,
+                           project_counts=counts)
 
 
 # ---------------------------------------------------------------- Piattaforme
-@app.route("/piattaforme/nuova", methods=["POST"])
+@app.route("/platform", methods=["POST"])
 def new_platform():
     name = request.form.get("name", "").strip()
     if not name:
         flash("Il nome della piattaforma è obbligatorio.", "error")
         return redirect(url_for("index"))
     db = get_db()
-    cur = db.execute("INSERT INTO platforms (name, description) VALUES (?, ?)",
-                     (name, request.form.get("description", "").strip()))
+    slug = unique_slug(db, "platforms", name, fallback="piattaforma")
+    db.execute("INSERT INTO platforms (name, slug, description) VALUES (?, ?, ?)",
+               (name, slug, request.form.get("description", "").strip()))
     db.commit()
-    pid = cur.lastrowid
     db.close()
-    flash(f"Piattaforma «{name}» creata.", "ok")
-    return redirect(url_for("platform_detail", platform_id=pid))
+    flash(f"Piattaforma «{name}» creata. Ora crea il suo primo progetto.", "ok")
+    return redirect(url_for("platform_detail", platform_slug=slug))
 
 
-@app.route("/piattaforme/<int:platform_id>")
-def platform_detail(platform_id):
+@app.route("/platform/<platform_slug>")
+def platform_detail(platform_slug):
     db = get_db()
-    platform = db.execute("SELECT * FROM platforms WHERE id = ?", (platform_id,)).fetchone()
+    platform = _get_platform(db, platform_slug)
     if not platform:
         db.close()
         flash("Piattaforma non trovata.", "error")
         return redirect(url_for("index"))
     projects = db.execute("SELECT * FROM projects WHERE platform_id = ? ORDER BY created_at",
-                          (platform_id,)).fetchall()
+                          (platform["id"],)).fetchall()
     stats = {p["id"]: project_stats(db, p["id"]) for p in projects}
-    agg = platform_stats(db, platform_id)
+    agg = platform_stats(db, platform["id"])
     db.close()
     return render_template("platform.html", platform=platform, projects=projects,
                            stats=stats, agg=agg)
 
 
-@app.route("/piattaforme/<int:platform_id>/modifica", methods=["POST"])
-def edit_platform(platform_id):
+@app.route("/platform/<platform_slug>/edit", methods=["POST"])
+def edit_platform(platform_slug):
     db = get_db()
-    db.execute("UPDATE platforms SET name = ?, description = ? WHERE id = ?",
-               (request.form.get("name", "").strip() or "Senza nome",
-                request.form.get("description", "").strip(), platform_id))
+    platform = _get_platform(db, platform_slug)
+    if not platform:
+        db.close()
+        flash("Piattaforma non trovata.", "error")
+        return redirect(url_for("index"))
+    name = request.form.get("name", "").strip() or "Senza nome"
+    slug = platform["slug"]
+    if name != platform["name"]:
+        slug = unique_slug(db, "platforms", name, exclude_id=platform["id"], fallback="piattaforma")
+    db.execute("UPDATE platforms SET name = ?, slug = ?, description = ? WHERE id = ?",
+               (name, slug, request.form.get("description", "").strip(), platform["id"]))
     db.commit()
     db.close()
     flash("Piattaforma aggiornata.", "ok")
-    return redirect(url_for("platform_detail", platform_id=platform_id))
+    return redirect(url_for("platform_detail", platform_slug=slug))
 
 
-@app.route("/piattaforme/<int:platform_id>/elimina", methods=["POST"])
-def delete_platform(platform_id):
+@app.route("/platform/<platform_slug>/delete", methods=["POST"])
+def delete_platform(platform_slug):
     db = get_db()
-    db.execute("UPDATE projects SET platform_id = NULL WHERE platform_id = ?", (platform_id,))
-    db.execute("DELETE FROM platforms WHERE id = ?", (platform_id,))
+    platform = _get_platform(db, platform_slug)
+    if not platform:
+        db.close()
+        flash("Piattaforma non trovata.", "error")
+        return redirect(url_for("index"))
+    n = db.execute("SELECT COUNT(*) FROM projects WHERE platform_id = ?", (platform["id"],)).fetchone()[0]
+    if n:
+        db.close()
+        flash(f"Impossibile eliminare: la piattaforma contiene {n} progetti. "
+              "Elimina o sposta prima i progetti.", "error")
+        return redirect(url_for("platform_detail", platform_slug=platform_slug))
+    db.execute("DELETE FROM platforms WHERE id = ?", (platform["id"],))
     db.commit()
     db.close()
-    flash("Piattaforma eliminata. I suoi progetti sono ora «senza piattaforma».", "ok")
+    flash("Piattaforma eliminata.", "ok")
     return redirect(url_for("index"))
 
 
-@app.route("/progetti/nuovo", methods=["POST"])
-def new_project():
+@app.route("/platform/<platform_slug>/project", methods=["POST"])
+def new_project(platform_slug):
+    db = get_db()
+    platform = _get_platform(db, platform_slug)
+    if not platform:
+        db.close()
+        flash("Piattaforma non trovata.", "error")
+        return redirect(url_for("index"))
     name = request.form.get("name", "").strip()
     if not name:
+        db.close()
         flash("Il nome del progetto è obbligatorio.", "error")
-        return redirect(url_for("index"))
-    db = get_db()
-    platform_id = request.form.get("platform_id") or None
-    cur = db.execute(
-        "INSERT INTO projects (name, description, url, platform_id) VALUES (?, ?, ?, ?)",
-        (name, request.form.get("description", "").strip(),
-         request.form.get("url", "").strip(), platform_id))
+        return redirect(url_for("platform_detail", platform_slug=platform_slug))
+    slug = unique_slug(db, "projects", name, "platform_id", platform["id"], fallback="progetto")
+    db.execute(
+        "INSERT INTO projects (name, slug, description, url, platform_id) VALUES (?, ?, ?, ?, ?)",
+        (name, slug, request.form.get("description", "").strip(),
+         request.form.get("url", "").strip(), platform["id"]))
     db.commit()
-    pid = cur.lastrowid
     db.close()
     flash(f"Progetto «{name}» creato.", "ok")
-    return redirect(url_for("project_detail", project_id=pid))
+    return redirect(url_for("project_detail", platform_slug=platform_slug, project_slug=slug))
 
 
-@app.route("/progetti/<int:project_id>/modifica", methods=["POST"])
-def edit_project(project_id):
+@app.route("/platform/<platform_slug>/project/<project_slug>/edit", methods=["POST"])
+def edit_project(platform_slug, project_slug):
     db = get_db()
+    project = _get_project(db, platform_slug, project_slug)
+    if not project:
+        db.close()
+        flash("Progetto non trovato.", "error")
+        return redirect(url_for("index"))
+    name = request.form.get("name", "").strip() or "Senza nome"
+    new_platform_id = int(request.form.get("platform_id") or project["platform_id"])
+    slug = project["slug"]
+    if name != project["name"] or new_platform_id != project["platform_id"]:
+        slug = unique_slug(db, "projects", name, "platform_id", new_platform_id,
+                           exclude_id=project["id"], fallback="progetto")
     db.execute(
-        "UPDATE projects SET name = ?, description = ?, url = ?, status = ?, platform_id = ? WHERE id = ?",
-        (request.form.get("name", "").strip() or "Senza nome",
-         request.form.get("description", "").strip(),
+        "UPDATE projects SET name = ?, slug = ?, description = ?, url = ?, status = ?, platform_id = ? WHERE id = ?",
+        (name, slug, request.form.get("description", "").strip(),
          request.form.get("url", "").strip(),
-         request.form.get("status", "In corso"),
-         request.form.get("platform_id") or None, project_id))
+         request.form.get("status", "In corso"), new_platform_id, project["id"]))
     db.commit()
+    pl_slug = db.execute("SELECT slug FROM platforms WHERE id = ?", (new_platform_id,)).fetchone()["slug"]
     db.close()
     flash("Progetto aggiornato.", "ok")
-    return redirect(url_for("project_detail", project_id=project_id))
+    return redirect(url_for("project_detail", platform_slug=pl_slug, project_slug=slug))
 
 
-@app.route("/progetti/<int:project_id>/elimina", methods=["POST"])
-def delete_project(project_id):
+@app.route("/platform/<platform_slug>/project/<project_slug>/delete", methods=["POST"])
+def delete_project(platform_slug, project_slug):
     db = get_db()
-    db.execute("DELETE FROM projects WHERE id = ?", (project_id,))
-    db.commit()
+    project = _get_project(db, platform_slug, project_slug)
+    if project:
+        db.execute("DELETE FROM projects WHERE id = ?", (project["id"],))
+        db.commit()
+        flash("Progetto eliminato.", "ok")
     db.close()
-    flash("Progetto eliminato.", "ok")
-    return redirect(url_for("index"))
+    return redirect(url_for("platform_detail", platform_slug=platform_slug))
 
 
 # ---------------------------------------------------------------- Progetto
-@app.route("/progetti/<int:project_id>")
-def project_detail(project_id):
+@app.route("/platform/<platform_slug>/project/<project_slug>")
+def project_detail(platform_slug, project_slug):
     db = get_db()
-    project = db.execute("""SELECT p.*, pl.name AS platform_name FROM projects p
-                            LEFT JOIN platforms pl ON pl.id = p.platform_id
-                            WHERE p.id = ?""", (project_id,)).fetchone()
+    project = _get_project(db, platform_slug, project_slug)
     if not project:
         db.close()
         flash("Progetto non trovato.", "error")
@@ -211,46 +252,57 @@ def project_detail(project_id):
              WHERE c.page_id = p.id AND e.status = 'non_conforme') AS n_anomalie,
           (SELECT COUNT(*) FROM evaluations e JOIN components c ON c.id = e.component_id
              WHERE c.page_id = p.id AND e.status = 'da_verificare') AS n_da_verificare
-        FROM pages p WHERE p.project_id = ? ORDER BY p.created_at""", (project_id,)).fetchall()
-    stats = project_stats(db, project_id)
+        FROM pages p WHERE p.project_id = ? ORDER BY p.created_at""", (project["id"],)).fetchall()
+    stats = project_stats(db, project["id"])
     db.close()
     return render_template("project.html", project=project, pages=pages,
                            stats=stats, platforms=platforms)
 
 
-@app.route("/progetti/<int:project_id>/pagine/nuova", methods=["POST"])
-def new_page(project_id):
-    name = request.form.get("name", "").strip()
-    if not name:
-        flash("Il nome della pagina è obbligatorio.", "error")
-        return redirect(url_for("project_detail", project_id=project_id))
+@app.route("/platform/<platform_slug>/project/<project_slug>/pages/new", methods=["POST"])
+def new_page(platform_slug, project_slug):
     db = get_db()
-    db.execute("INSERT INTO pages (project_id, name, url, notes) VALUES (?, ?, ?, ?)",
-               (project_id, name, request.form.get("url", "").strip(),
-                request.form.get("notes", "").strip()))
-    db.commit()
+    project = _get_project(db, platform_slug, project_slug)
+    if not project:
+        db.close()
+        flash("Progetto non trovato.", "error")
+        return redirect(url_for("index"))
+    name = request.form.get("name", "").strip()
+    if name:
+        db.execute("INSERT INTO pages (project_id, name, url, notes) VALUES (?, ?, ?, ?)",
+                   (project["id"], name, request.form.get("url", "").strip(),
+                    request.form.get("notes", "").strip()))
+        db.commit()
+        flash(f"Pagina «{name}» aggiunta.", "ok")
+    else:
+        flash("Il nome della pagina è obbligatorio.", "error")
     db.close()
-    flash(f"Pagina «{name}» aggiunta.", "ok")
-    return redirect(url_for("project_detail", project_id=project_id))
+    return redirect(url_for("project_detail", platform_slug=platform_slug, project_slug=project_slug))
 
 
 @app.route("/pagine/<int:page_id>/elimina", methods=["POST"])
 def delete_page(page_id):
     db = get_db()
-    row = db.execute("SELECT project_id FROM pages WHERE id = ?", (page_id,)).fetchone()
+    row = db.execute("""SELECT pr.slug AS project_slug, pl.slug AS platform_slug
+                        FROM pages p JOIN projects pr ON pr.id = p.project_id
+                        JOIN platforms pl ON pl.id = pr.platform_id
+                        WHERE p.id = ?""", (page_id,)).fetchone()
     db.execute("DELETE FROM pages WHERE id = ?", (page_id,))
     db.commit()
     db.close()
     flash("Pagina eliminata.", "ok")
-    return redirect(url_for("project_detail", project_id=row["project_id"]) if row else url_for("index"))
+    return redirect(url_for("project_detail", platform_slug=row["platform_slug"],
+                            project_slug=row["project_slug"]) if row else url_for("index"))
 
 
 # ---------------------------------------------------------------- Pagina
 @app.route("/pagine/<int:page_id>")
 def page_detail(page_id):
     db = get_db()
-    page = db.execute("""SELECT p.*, pr.name AS project_name, pr.id AS project_id
+    page = db.execute("""SELECT p.*, pr.name AS project_name, pr.id AS project_id,
+                                pr.slug AS project_slug, pl.slug AS platform_slug
                          FROM pages p JOIN projects pr ON pr.id = p.project_id
+                         JOIN platforms pl ON pl.id = pr.platform_id
                          WHERE p.id = ?""", (page_id,)).fetchone()
     if not page:
         db.close()
@@ -313,11 +365,13 @@ def component_detail(component_id):
     comp = db.execute("""
         SELECT c.*, t.name AS type_name, t.aria_notes,
                p.name AS page_name, p.id AS page_id,
-               pr.name AS project_name, pr.id AS project_id
+               pr.name AS project_name, pr.id AS project_id,
+               pr.slug AS project_slug, pl.slug AS platform_slug
         FROM components c
         JOIN component_types t ON t.id = c.component_type_id
         JOIN pages p ON p.id = c.page_id
         JOIN projects pr ON pr.id = p.project_id
+        JOIN platforms pl ON pl.id = pr.platform_id
         WHERE c.id = ?""", (component_id,)).fetchone()
     if not comp:
         db.close()
@@ -475,13 +529,14 @@ def report_data(db, project_id):
     return rows
 
 
-@app.route("/progetti/<int:project_id>/report")
-def report(project_id):
+@app.route("/platform/<platform_slug>/project/<project_slug>/report")
+def report(platform_slug, project_slug):
     db = get_db()
-    project = db.execute("SELECT * FROM projects WHERE id = ?", (project_id,)).fetchone()
+    project = _get_project(db, platform_slug, project_slug)
     if not project:
         db.close()
         return redirect(url_for("index"))
+    project_id = project["id"]
     anomalies = report_data(db, project_id)
     stats = project_stats(db, project_id)
     histories = {}
@@ -503,11 +558,14 @@ def report(project_id):
                            generated=datetime.now().strftime("%d/%m/%Y %H:%M"))
 
 
-@app.route("/progetti/<int:project_id>/export.csv")
-def export_csv(project_id):
+@app.route("/platform/<platform_slug>/project/<project_slug>/export.csv")
+def export_csv(platform_slug, project_slug):
     db = get_db()
-    project = db.execute("SELECT * FROM projects WHERE id = ?", (project_id,)).fetchone()
-    anomalies = report_data(db, project_id)
+    project = _get_project(db, platform_slug, project_slug)
+    if not project:
+        db.close()
+        return redirect(url_for("index"))
+    anomalies = report_data(db, project["id"])
     db.close()
     out = io.StringIO()
     w = csv.writer(out, delimiter=";")
@@ -524,14 +582,18 @@ def export_csv(project_id):
     return send_file(data, mimetype="text/csv", as_attachment=True, download_name=fname)
 
 
-@app.route("/progetti/<int:project_id>/export.xlsx")
-def export_xlsx(project_id):
+@app.route("/platform/<platform_slug>/project/<project_slug>/export.xlsx")
+def export_xlsx(platform_slug, project_slug):
     from openpyxl import Workbook
     from openpyxl.styles import Alignment, Font, PatternFill
     from openpyxl.utils import get_column_letter
 
     db = get_db()
-    project = db.execute("SELECT * FROM projects WHERE id = ?", (project_id,)).fetchone()
+    project = _get_project(db, platform_slug, project_slug)
+    if not project:
+        db.close()
+        return redirect(url_for("index"))
+    project_id = project["id"]
     anomalies = report_data(db, project_id)
     all_rows = db.execute("""
         SELECT pg.name AS page_name, c.name AS component_name, t.name AS type_name,

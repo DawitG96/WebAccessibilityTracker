@@ -10,10 +10,15 @@
 <a class="skip-link" href="#main">Salta al contenuto principale</a>
 <header class="topbar">
   <div class="container topbar-inner">
-    <a href="{{ url_for('index') }}" class="brand">♿ Accessibility Tracker <span class="brand-sub">WCAG 2.2 · A/AA</span></a>
+    <a href="{{ url_for('index') }}" class="brand">
+      <svg class="brand-icon" aria-hidden="true" focusable="false" width="22" height="22" viewBox="0 0 24 24"
+           fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+      </svg>
+      Accessibility Tracker <span class="brand-sub">WCAG 2.2 · A/AA</span></a>
     <nav aria-label="Navigazione principale">
-      <a href="{{ url_for('index') }}">Progetti</a>
-      <a href="{{ url_for('types_list') }}">Tipologie componenti</a>
+      <a href="{{ url_for('index') }}" {% if request.endpoint == 'index' %}aria-current="page"{% endif %}>Piattaforme</a>
+      <a href="{{ url_for('types_list') }}" {% if request.endpoint == 'types_list' %}aria-current="page"{% endif %}>Tipologie componenti</a>
     </nav>
   </div>
 </header>
