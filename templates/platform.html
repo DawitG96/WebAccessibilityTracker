@@ -1,0 +1,64 @@
+{% extends "base.html" %}
+{% block title %}{{ platform.name }} — Accessibility Tracker{% endblock %}
+{% block content %}
+<p class="breadcrumb"><a href="{{ url_for('index') }}">Piattaforme</a> › {{ platform.name }}</p>
+<h1>🖥️ {{ platform.name }}</h1>
+{% if platform.description %}<p>{{ platform.description }}</p>{% endif %}
+
+<div class="card">
+  <h2 style="margin-top:0">Sintesi piattaforma ({{ projects|length }} progetti)</h2>
+  <div class="stat-strip">
+    <span>Verifiche totali: <strong>{{ agg.totale }}</strong></span>
+    <span class="badge b-conforme">{{ agg.conformi }} conformi</span>
+    <span class="badge b-non_conforme">{{ agg.non_conformi }} non conformi</span>
+    <span class="badge b-da_verificare">{{ agg.da_verificare }} da verificare</span>
+    <span>Anomalie risolte: <strong>{{ agg.risolte }}/{{ agg.non_conformi }}</strong></span>
+  </div>
+  {% if agg.totale %}
+  <div class="progress" role="progressbar" aria-valuenow="{{ agg.pct_avanzamento }}" aria-valuemin="0" aria-valuemax="100" aria-label="Avanzamento complessivo piattaforma">
+    <span style="width: {{ agg.pct_avanzamento }}%"></span>
+  </div>
+  <p class="report-meta">Avanzamento: {{ agg.pct_avanzamento }}% · Conformità A/AA sui criteri valutati: {{ agg.pct_conformi }}%</p>
+  {% endif %}
+</div>
+
+<h2>Progetti</h2>
+{% if projects %}
+<table>
+  <thead>
+    <tr><th scope="col">Progetto</th><th scope="col">Stato</th><th scope="col">Avanzamento</th>
+        <th scope="col">Conformi</th><th scope="col">Anomalie</th><th scope="col">Da verificare</th></tr>
+  </thead>
+  <tbody>
+    {% for p in projects %}
+    {% set s = stats[p.id] %}
+    <tr>
+      <td><a href="{{ url_for('project_detail', project_id=p.id) }}">{{ p.name }}</a></td>
+      <td><span class="badge b-level">{{ p.status }}</span></td>
+      <td>{{ s.pct_avanzamento }}%</td>
+      <td><span class="badge b-conforme">{{ s.conformi }}</span></td>
+      <td><span class="badge b-non_conforme">{{ s.non_conformi }}</span></td>
+      <td><span class="badge b-da_verificare">{{ s.da_verificare }}</span></td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<p>Nessun progetto in questa piattaforma: creane uno dalla <a href="{{ url_for('index') }}">dashboard</a> selezionando «{{ platform.name }}».</p>
+{% endif %}
+
+<details class="card">
+  <summary>Impostazioni piattaforma</summary>
+  <form method="post" action="{{ url_for('edit_platform', platform_id=platform.id) }}" style="margin-top:1rem">
+    <label for="epl-name">Nome *</label>
+    <input type="text" id="epl-name" name="name" value="{{ platform.name }}" required>
+    <label for="epl-desc" style="margin-top:.6rem">Descrizione</label>
+    <textarea id="epl-desc" name="description">{{ platform.description }}</textarea>
+    <p><button type="submit">Salva modifiche</button></p>
+  </form>
+  <form method="post" action="{{ url_for('delete_platform', platform_id=platform.id) }}"
+        onsubmit="return confirm('Eliminare la piattaforma «{{ platform.name }}»? I progetti NON verranno eliminati, resteranno senza piattaforma.')">
+    <button type="submit" class="btn-danger">Elimina piattaforma</button>
+  </form>
+</details>
+{% endblock %}

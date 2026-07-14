@@ -1,7 +1,9 @@
 {% extends "base.html" %}
 {% block title %}{{ project.name }} — Accessibility Tracker{% endblock %}
 {% block content %}
-<p class="breadcrumb"><a href="{{ url_for('index') }}">Progetti</a> › {{ project.name }}</p>
+<p class="breadcrumb"><a href="{{ url_for('index') }}">Piattaforme</a>
+  {% if project.platform_id %} › <a href="{{ url_for('platform_detail', platform_id=project.platform_id) }}">{{ project.platform_name }}</a>{% endif %}
+  › {{ project.name }}</p>
 <h1>{{ project.name }}</h1>
 {% if project.url %}<p><a href="{{ project.url }}" target="_blank" rel="noopener">{{ project.url }}</a></p>{% endif %}
 {% if project.description %}<p>{{ project.description }}</p>{% endif %}
@@ -19,7 +21,9 @@
   <div class="progress" role="progressbar" aria-valuenow="{{ stats.pct_avanzamento }}" aria-valuemin="0" aria-valuemax="100" aria-label="Avanzamento valutazione">
     <span style="width: {{ stats.pct_avanzamento }}%"></span>
   </div>
-  <p class="report-meta">Avanzamento valutazione: {{ stats.pct_avanzamento }}% · Conformità sui criteri valutati: {{ stats.pct_conformi }}%</p>
+  <p class="report-meta">Avanzamento valutazione: {{ stats.pct_avanzamento }}% ·
+     Conformità <strong>A/AA</strong> sui criteri valutati: {{ stats.pct_conformi }}%
+     {% if stats.non_conformi_aaa %} · Anomalie AAA (escluse dal calcolo): {{ stats.non_conformi_aaa }}{% endif %}</p>
   {% endif %}
   <div class="report-actions">
     <a class="btn" href="{{ url_for('report', project_id=project.id) }}">📄 Report anomalie</a>
@@ -90,6 +94,15 @@
         <select id="ep-status" name="status">
           {% for st in PROJECT_STATUSES %}
           <option value="{{ st }}" {% if project.status == st %}selected{% endif %}>{{ st }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div>
+        <label for="ep-platform">Piattaforma</label>
+        <select id="ep-platform" name="platform_id">
+          <option value="">— Nessuna —</option>
+          {% for pl in platforms %}
+          <option value="{{ pl.id }}" {% if project.platform_id == pl.id %}selected{% endif %}>{{ pl.name }}</option>
           {% endfor %}
         </select>
       </div>

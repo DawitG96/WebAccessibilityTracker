@@ -26,7 +26,7 @@
         <td><input type="checkbox" id="crit-{{ c.id }}" name="criteria" value="{{ c.id }}"
                    {% if c.id in selected %}checked{% endif %}></td>
         <td><label for="crit-{{ c.id }}" style="font-weight:400">{{ c.code }} {{ c.title }}</label></td>
-        <td><span class="badge b-level">{{ c.level }}</span></td>
+        <td><span class="badge {% if c.level == 'AAA' %}b-aaa{% else %}b-level{% endif %}">{{ c.level }}</span></td>
         <td>{{ c.principle }}</td>
       </tr>
       {% endfor %}

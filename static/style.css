@@ -48,6 +48,7 @@ caption { text-align: left; font-weight: 600; padding: .4rem 0; }
 .b-da_verificare { background: var(--giallo-bg); color: var(--giallo); }
 .b-non_applicabile { background: var(--grigio-bg); color: var(--grigio); }
 .b-level { background: var(--azzurro); color: var(--blu-scuro); }
+.b-aaa { background: #f0e6f7; color: #6a1b9a; }
 .b-aperta { background: var(--rosso-bg); color: var(--rosso); }
 .b-in_lavorazione { background: var(--giallo-bg); color: var(--giallo); }
 .b-risolta, .b-verificata { background: var(--verde-bg); color: var(--verde); }

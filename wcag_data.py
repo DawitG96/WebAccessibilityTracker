@@ -127,7 +127,7 @@ COMPONENT_TYPES = [
      ["1.3.1", "1.3.5", "1.4.1", "1.4.3", "2.1.1", "2.4.6", "2.4.7", "3.2.2", "3.3.1", "3.3.2", "3.3.3", "3.3.4", "3.3.7", "3.3.8", "4.1.2"]),
 
     ("Immagine / Icona", "Immagini informative, decorative, grafici, icone",
-     "alt appropriato; alt=\"\" o role=presentation se decorativa; role=img per SVG; aria-hidden=true per icone decorative",
+     "alt appropriato; alt vuoto o role=presentation se decorativa; role=img per SVG; aria-hidden=true per icone decorative",
      ["1.1.1", "1.4.1", "1.4.5", "1.4.11"]),
 
     ("Modale / Dialog", "Finestre di dialogo, popup, lightbox",
@@ -155,7 +155,7 @@ COMPONENT_TYPES = [
      ["1.1.1", "1.2.1", "1.2.2", "1.2.3", "1.2.4", "1.2.5", "1.4.2", "2.1.1", "2.2.2", "2.3.1"]),
 
     ("Struttura pagina / Intestazioni", "Titolo pagina, gerarchia heading, landmark, lingua",
-     "h1–h6 in ordine gerarchico; landmark (main, banner, contentinfo, complementary); lang su html; skip link",
+     "h1-h6 in ordine gerarchico; landmark (main, banner, contentinfo, complementary); lang su html; skip link",
      ["1.3.1", "1.3.2", "2.4.1", "2.4.2", "2.4.6", "3.1.1", "3.1.2"]),
 
     ("Testo / Contenuto", "Paragrafi, testo formattato, contenuto informativo",
@@ -200,3 +200,5 @@ AAA_EXTRAS = {
     "Breadcrumb / Paginazione": ["2.4.8"],
     "Altro / Generico": [c[0] for c in CRITERIA if c[2] == "AAA"],
 }
+# fine
+

@@ -1,55 +1,89 @@
 {% extends "base.html" %}
-{% block title %}Progetti — Accessibility Tracker{% endblock %}
+{% block title %}Piattaforme e progetti — Accessibility Tracker{% endblock %}
 {% block content %}
-<h1>I tuoi progetti</h1>
+<h1>Piattaforme e progetti</h1>
 
-<div class="card">
-  <h2 style="margin-top:0">Nuovo progetto</h2>
-  <form method="post" action="{{ url_for('new_project') }}">
-    <div class="form-row">
-      <div>
-        <label for="p-name">Nome piattaforma / applicativo *</label>
-        <input type="text" id="p-name" name="name" required>
-      </div>
-      <div>
-        <label for="p-url">URL</label>
-        <input type="url" id="p-url" name="url" placeholder="https://…">
-      </div>
-    </div>
-    <label for="p-desc">Descrizione</label>
-    <textarea id="p-desc" name="description"></textarea>
-    <p><button type="submit">Crea progetto</button></p>
-  </form>
+<div class="grid">
+  <div class="card">
+    <h2 style="margin-top:0">Nuova piattaforma</h2>
+    <p class="report-meta">Una piattaforma raggruppa più progetti (es. microservizi, portali collegati).</p>
+    <form method="post" action="{{ url_for('new_platform') }}">
+      <label for="pl-name">Nome piattaforma *</label>
+      <input type="text" id="pl-name" name="name" required>
+      <label for="pl-desc" style="margin-top:.6rem">Descrizione</label>
+      <textarea id="pl-desc" name="description"></textarea>
+      <p><button type="submit">Crea piattaforma</button></p>
+    </form>
+  </div>
+
+  <div class="card">
+    <h2 style="margin-top:0">Nuovo progetto</h2>
+    <form method="post" action="{{ url_for('new_project') }}">
+      <label for="p-name">Nome progetto / applicativo *</label>
+      <input type="text" id="p-name" name="name" required>
+      <label for="p-platform" style="margin-top:.6rem">Piattaforma</label>
+      <select id="p-platform" name="platform_id">
+        <option value="">— Nessuna —</option>
+        {% for pl in platforms %}
+        <option value="{{ pl.id }}">{{ pl.name }}</option>
+        {% endfor %}
+      </select>
+      <label for="p-url" style="margin-top:.6rem">URL</label>
+      <input type="url" id="p-url" name="url" placeholder="https://…">
+      <label for="p-desc" style="margin-top:.6rem">Descrizione</label>
+      <textarea id="p-desc" name="description"></textarea>
+      <p><button type="submit">Crea progetto</button></p>
+    </form>
+  </div>
 </div>
 
-{% if projects %}
-<div class="grid">
-  {% for p in projects %}
-  {% set s = stats[p.id] %}
-  <div class="card">
-    <h2 style="margin-top:0"><a href="{{ url_for('project_detail', project_id=p.id) }}">{{ p.name }}</a></h2>
-    <p class="stat-strip">
-      <span class="badge b-level">{{ p.status }}</span>
-      <span>{{ page_counts[p.id] }} pagine</span>
-      <span>{{ s.totale }} verifiche</span>
-    </p>
-    {% if s.totale %}
-    <div class="progress" role="progressbar" aria-valuenow="{{ s.pct_avanzamento }}" aria-valuemin="0" aria-valuemax="100" aria-label="Avanzamento valutazione {{ p.name }}">
-      <span style="width: {{ s.pct_avanzamento }}%"></span>
-    </div>
-    <p class="stat-strip">
-      <span>Avanzamento: <strong>{{ s.pct_avanzamento }}%</strong></span>
-      <span class="badge b-conforme">{{ s.conformi }} conformi</span>
-      <span class="badge b-non_conforme">{{ s.non_conformi }} anomalie</span>
-      <span class="badge b-da_verificare">{{ s.da_verificare }} da verificare</span>
-    </p>
-    {% else %}
-    <p class="report-meta">Nessuna verifica ancora inserita.</p>
-    {% endif %}
+{% macro project_card(p) %}
+{% set s = stats[p.id] %}
+<div class="card">
+  <h3 style="margin-top:0"><a href="{{ url_for('project_detail', project_id=p.id) }}">{{ p.name }}</a></h3>
+  <p class="stat-strip">
+    <span class="badge b-level">{{ p.status }}</span>
+    <span>{{ page_counts[p.id] }} pagine</span>
+    <span>{{ s.totale }} verifiche</span>
+  </p>
+  {% if s.totale %}
+  <div class="progress" role="progressbar" aria-valuenow="{{ s.pct_avanzamento }}" aria-valuemin="0" aria-valuemax="100" aria-label="Avanzamento valutazione {{ p.name }}">
+    <span style="width: {{ s.pct_avanzamento }}%"></span>
   </div>
-  {% endfor %}
+  <p class="stat-strip">
+    <span>Avanzamento: <strong>{{ s.pct_avanzamento }}%</strong></span>
+    <span class="badge b-conforme">{{ s.conformi }} conformi</span>
+    <span class="badge b-non_conforme">{{ s.non_conformi }} anomalie</span>
+    <span class="badge b-da_verificare">{{ s.da_verificare }} da verificare</span>
+  </p>
+  {% else %}
+  <p class="report-meta">Nessuna verifica ancora inserita.</p>
+  {% endif %}
+</div>
+{% endmacro %}
+
+{% for pl in platforms %}
+<h2>🖥️ <a href="{{ url_for('platform_detail', platform_id=pl.id) }}">{{ pl.name }}</a></h2>
+{% if pl.description %}<p class="report-meta">{{ pl.description }}</p>{% endif %}
+{% set pl_projects = projects | selectattr('platform_id', 'equalto', pl.id) | list %}
+{% if pl_projects %}
+<div class="grid">
+  {% for p in pl_projects %}{{ project_card(p) }}{% endfor %}
 </div>
 {% else %}
-<p>Nessun progetto ancora: crea il primo qui sopra per iniziare la valutazione.</p>
+<p class="report-meta">Nessun progetto in questa piattaforma.</p>
+{% endif %}
+{% endfor %}
+
+{% set orphans = projects | selectattr('platform_id', 'none') | list %}
+{% if orphans %}
+<h2>Progetti senza piattaforma</h2>
+<div class="grid">
+  {% for p in orphans %}{{ project_card(p) }}{% endfor %}
+</div>
+{% endif %}
+
+{% if not projects and not platforms %}
+<p>Nessun progetto ancora: crea una piattaforma o un progetto qui sopra per iniziare.</p>
 {% endif %}
 {% endblock %}

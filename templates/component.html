@@ -35,7 +35,7 @@
         <td>
           <strong><a href="{{ WCAG_BASE_URL }}{{ e.anchor }}" target="_blank" rel="noopener">{{ e.code }}</a></strong>
           {{ e.title }}<br>
-          <span class="badge b-level">{{ e.level }}</span>
+          <span class="badge {% if e.level == 'AAA' %}b-aaa{% else %}b-level{% endif %}">{{ e.level }}</span>
           <small>{{ e.principle }}</small>
         </td>
         <td>

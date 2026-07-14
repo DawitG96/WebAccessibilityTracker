@@ -154,9 +154,11 @@ def new_project():
         flash("Il nome del progetto è obbligatorio.", "error")
         return redirect(url_for("index"))
     db = get_db()
+    platform_id = request.form.get("platform_id") or None
     cur = db.execute(
-        "INSERT INTO projects (name, description, url) VALUES (?, ?, ?)",
-        (name, request.form.get("description", "").strip(), request.form.get("url", "").strip()))
+        "INSERT INTO projects (name, description, url, platform_id) VALUES (?, ?, ?, ?)",
+        (name, request.form.get("description", "").strip(),
+         request.form.get("url", "").strip(), platform_id))
     db.commit()
     pid = cur.lastrowid
     db.close()
@@ -168,11 +170,12 @@ def new_project():
 def edit_project(project_id):
     db = get_db()
     db.execute(
-        "UPDATE projects SET name = ?, description = ?, url = ?, status = ? WHERE id = ?",
+        "UPDATE projects SET name = ?, description = ?, url = ?, status = ?, platform_id = ? WHERE id = ?",
         (request.form.get("name", "").strip() or "Senza nome",
          request.form.get("description", "").strip(),
          request.form.get("url", "").strip(),
-         request.form.get("status", "In corso"), project_id))
+         request.form.get("status", "In corso"),
+         request.form.get("platform_id") or None, project_id))
     db.commit()
     db.close()
     flash("Progetto aggiornato.", "ok")
@@ -193,11 +196,14 @@ def delete_project(project_id):
 @app.route("/progetti/<int:project_id>")
 def project_detail(project_id):
     db = get_db()
-    project = db.execute("SELECT * FROM projects WHERE id = ?", (project_id,)).fetchone()
+    project = db.execute("""SELECT p.*, pl.name AS platform_name FROM projects p
+                            LEFT JOIN platforms pl ON pl.id = p.platform_id
+                            WHERE p.id = ?""", (project_id,)).fetchone()
     if not project:
         db.close()
         flash("Progetto non trovato.", "error")
         return redirect(url_for("index"))
+    platforms = db.execute("SELECT * FROM platforms ORDER BY name").fetchall()
     pages = db.execute("""
         SELECT p.*,
           (SELECT COUNT(*) FROM components c WHERE c.page_id = p.id) AS n_componenti,
@@ -208,7 +214,8 @@ def project_detail(project_id):
         FROM pages p WHERE p.project_id = ? ORDER BY p.created_at""", (project_id,)).fetchall()
     stats = project_stats(db, project_id)
     db.close()
-    return render_template("project.html", project=project, pages=pages, stats=stats)
+    return render_template("project.html", project=project, pages=pages,
+                           stats=stats, platforms=platforms)
 
 
 @app.route("/progetti/<int:project_id>/pagine/nuova", methods=["POST"])
@@ -276,9 +283,12 @@ def new_component(page_id):
          request.form.get("notes", "").strip()))
     comp_id = cur.lastrowid
     # Genera automaticamente le valutazioni per i criteri applicabili alla tipologia
+    include_aaa = 1 if request.form.get("include_aaa") else 0
     db.execute("""INSERT INTO evaluations (component_id, criterion_id)
-                  SELECT ?, criterion_id FROM component_type_criteria WHERE component_type_id = ?""",
-               (comp_id, type_id))
+                  SELECT ?, ctc.criterion_id FROM component_type_criteria ctc
+                  JOIN criteria cr ON cr.id = ctc.criterion_id
+                  WHERE ctc.component_type_id = ? AND (? = 1 OR cr.level != 'AAA')""",
+               (comp_id, type_id, include_aaa))
     db.commit()
     db.close()
     flash(f"Componente «{name}» aggiunto con la checklist dei criteri applicabili.", "ok")
@@ -316,11 +326,11 @@ def component_detail(component_id):
     evals = db.execute("""
         SELECT e.*, cr.code, cr.title, cr.level, cr.principle, cr.anchor
         FROM evaluations e JOIN criteria cr ON cr.id = e.criterion_id
-        WHERE e.component_id = ? ORDER BY cr.id""", (component_id,)).fetchall()
+        WHERE e.component_id = ? ORDER BY cr.sort_order""", (component_id,)).fetchall()
     remaining = db.execute("""
         SELECT * FROM criteria WHERE id NOT IN
           (SELECT criterion_id FROM evaluations WHERE component_id = ?)
-        ORDER BY id""", (component_id,)).fetchall()
+        ORDER BY sort_order""", (component_id,)).fetchall()
     hist = db.execute("""
         SELECT h.*, cr.code FROM history h
         JOIN evaluations e ON e.id = h.evaluation_id
@@ -427,7 +437,7 @@ def type_form(type_id=None):
     selected = {r["criterion_id"] for r in db.execute(
         "SELECT criterion_id FROM component_type_criteria WHERE component_type_id = ?",
         (type_id,)).fetchall()} if type_id else set()
-    criteria = db.execute("SELECT * FROM criteria ORDER BY id").fetchall()
+    criteria = db.execute("SELECT * FROM criteria ORDER BY sort_order").fetchall()
     db.close()
     return render_template("tipologia_form.html", ctype=ctype, criteria=criteria, selected=selected)
 
@@ -461,7 +471,7 @@ def report_data(db, project_id):
         JOIN pages pg ON pg.id = c.page_id
         JOIN criteria cr ON cr.id = e.criterion_id
         WHERE pg.project_id = ? AND e.status = 'non_conforme'
-        ORDER BY pg.created_at, c.created_at, cr.id""", (project_id,)).fetchall()
+        ORDER BY pg.created_at, c.created_at, cr.sort_order""", (project_id,)).fetchall()
     return rows
 
 
@@ -480,12 +490,12 @@ def report(project_id):
             "SELECT * FROM history WHERE evaluation_id = ? ORDER BY changed_at", (a["eval_id"],)).fetchall()
     # criteri violati distinti
     violated = db.execute("""
-        SELECT DISTINCT cr.code, cr.title, cr.level
+        SELECT DISTINCT cr.code, cr.title, cr.level, cr.sort_order
         FROM evaluations e
         JOIN components c ON c.id = e.component_id
         JOIN pages pg ON pg.id = c.page_id
         JOIN criteria cr ON cr.id = e.criterion_id
-        WHERE pg.project_id = ? AND e.status = 'non_conforme' ORDER BY cr.id""", (project_id,)).fetchall()
+        WHERE pg.project_id = ? AND e.status = 'non_conforme' ORDER BY cr.sort_order""", (project_id,)).fetchall()
     db.close()
     from datetime import datetime
     return render_template("report.html", project=project, anomalies=anomalies,
@@ -532,7 +542,7 @@ def export_xlsx(project_id):
         JOIN pages pg ON pg.id = c.page_id
         JOIN criteria cr ON cr.id = e.criterion_id
         WHERE pg.project_id = ?
-        ORDER BY pg.created_at, c.created_at, cr.id""", (project_id,)).fetchall()
+        ORDER BY pg.created_at, c.created_at, cr.sort_order""", (project_id,)).fetchall()
     db.close()
 
     wb = Workbook()

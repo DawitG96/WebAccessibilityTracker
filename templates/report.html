@@ -25,7 +25,8 @@
     <span class="badge b-non_applicabile">{{ stats.non_applicabili }} non applicabili</span>
   </div>
   <p>
-    Conformità sui criteri valutati: <strong>{{ stats.pct_conformi }}%</strong> ·
+    Conformità <strong>A/AA</strong> sui criteri valutati: <strong>{{ stats.pct_conformi }}%</strong>
+    {% if stats.non_conformi_aaa %} · Anomalie su criteri AAA (escluse dal calcolo): {{ stats.non_conformi_aaa }}{% endif %} ·
     Anomalie risolte: <strong>{{ stats.risolte }} su {{ stats.non_conformi }}</strong>
     {% if stats.da_verificare %} · <em>Attenzione: {{ stats.da_verificare }} verifiche ancora da completare.</em>{% endif %}
   </p>
@@ -33,7 +34,7 @@
   <h3>Criteri di successo violati ({{ violated|length }})</h3>
   <ul>
     {% for v in violated %}
-    <li><strong>{{ v.code }}</strong> {{ v.title }} <span class="badge b-level">{{ v.level }}</span></li>
+    <li><strong>{{ v.code }}</strong> {{ v.title }} <span class="badge {% if v.level == 'AAA' %}b-aaa{% else %}b-level{% endif %}">{{ v.level }}</span></li>
     {% endfor %}
   </ul>
   {% endif %}
@@ -52,7 +53,7 @@
     </p>
     <p>
       <strong><a href="{{ WCAG_BASE_URL }}{{ a.anchor }}" target="_blank" rel="noopener">{{ a.code }} {{ a.title }}</a></strong>
-      <span class="badge b-level">Livello {{ a.level }}</span>
+      <span class="badge {% if a.level == 'AAA' %}b-aaa{% else %}b-level{% endif %}">Livello {{ a.level }}</span>
       <span class="badge b-{{ a.work_status or 'aperta' }}">{{ WORK_LABELS.get(a.work_status, a.work_status) or 'Aperta' }}</span>
     </p>
     {% if a.note %}<p><strong>Motivazione:</strong> {{ a.note }}</p>{% endif %}
