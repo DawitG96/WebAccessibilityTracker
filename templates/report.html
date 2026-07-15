@@ -2,17 +2,17 @@
 {% block title %}Report anomalie — {{ project.name }}{% endblock %}
 {% block content %}
 <div class="report-header">
-  <p class="breadcrumb no-print"><a href="{{ url_for('index') }}">Progetti</a> ›
-     <a href="{{ url_for('project_detail', project_id=project.id) }}">{{ project.name }}</a> › Report</p>
+  <p class="breadcrumb no-print"><a href="{{ url_for('index') }}">Piattaforme</a> ›
+     <a href="{{ url_for('project_detail', platform_slug=project.platform_slug, project_slug=project.slug) }}">{{ project.name }}</a> › Report</p>
   <h1>Report di valutazione dell'accessibilità</h1>
   <p><strong>{{ project.name }}</strong>{% if project.url %} — {{ project.url }}{% endif %}</p>
   <p class="report-meta">Standard di riferimento: WCAG 2.2, livelli A e AA · Stato progetto: {{ project.status }} · Generato il {{ generated }}</p>
 </div>
 
 <div class="report-actions">
-  <button type="button" onclick="window.print()">🖨️ Stampa / salva PDF</button>
-  <a class="btn btn-secondary" href="{{ url_for('export_csv', project_id=project.id) }}">Esporta CSV</a>
-  <a class="btn btn-secondary" href="{{ url_for('export_xlsx', project_id=project.id) }}">Esporta Excel</a>
+  <button type="button" onclick="window.print()"><span aria-hidden="true">🖨️</span> Stampa / salva PDF</button>
+  <a class="btn btn-secondary" href="{{ url_for('export_csv', platform_slug=project.platform_slug, project_slug=project.slug) }}">Esporta CSV</a>
+  <a class="btn btn-secondary" href="{{ url_for('export_xlsx', platform_slug=project.platform_slug, project_slug=project.slug) }}">Esporta Excel</a>
 </div>
 
 <div class="card">
@@ -25,7 +25,7 @@
     <span class="badge b-non_applicabile">{{ stats.non_applicabili }} non applicabili</span>
   </div>
   <p>
-    Conformità <strong>A/AA</strong> sui criteri valutati: <strong>{{ stats.pct_conformi }}%</strong>
+    Conformità sui criteri <strong>A/AA</strong>: <strong>{{ stats.pct_conformi }}%</strong>
     {% if stats.non_conformi_aaa %} · Anomalie su criteri AAA (escluse dal calcolo): {{ stats.non_conformi_aaa }}{% endif %} ·
     Anomalie risolte: <strong>{{ stats.risolte }} su {{ stats.non_conformi }}</strong>
     {% if stats.da_verificare %} · <em>Attenzione: {{ stats.da_verificare }} verifiche ancora da completare.</em>{% endif %}

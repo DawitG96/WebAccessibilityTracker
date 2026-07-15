@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+{% block title %}Criteri di successo WCAG — Accessibility Tracker{% endblock %}
+{% block content %}
+<h1>Criteri di successo WCAG 2.2</h1>
+<p>Elenco completo dei criteri di successo, con descrizione e livello. Consulta questa pagina per capire cosa verifica ogni criterio prima di valutare un componente.</p>
+
+<nav aria-label="Filtra per livello" class="report-actions">
+  <a class="btn {% if not livello %}btn-secondary{% endif %}" href="{{ url_for('criteria_list') }}"
+     {% if not livello %}aria-current="true"{% endif %}>Tutti ({{ counts.values()|sum }})</a>
+  {% for lv in ["A", "AA", "AAA"] %}
+  <a class="btn {% if livello != lv %}btn-secondary{% endif %}" href="{{ url_for('criteria_list', livello=lv) }}"
+     {% if livello == lv %}aria-current="true"{% endif %}>Livello {{ lv }} ({{ counts.get(lv, 0) }})</a>
+  {% endfor %}
+</nav>
+
+<table>
+  <thead>
+    <tr>
+      <th scope="col">Criterio</th>
+      <th scope="col">Titolo</th>
+      <th scope="col">Livello</th>
+      <th scope="col">Principio</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for c in criteria %}
+    <tr>
+      <td><strong><a href="{{ WCAG_BASE_URL }}{{ c.anchor }}" target="_blank" rel="noopener">{{ c.code }}</a></strong></td>
+      <td>{{ c.title }}</td>
+      <td><span class="badge {% if c.level == 'AAA' %}b-aaa{% else %}b-level{% endif %}">{{ c.level }}</span></td>
+      <td>{{ c.principle }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% if not criteria %}
+<p class="report-meta">Nessun criterio per il livello selezionato.</p>
+{% endif %}
+{% endblock %}
