@@ -2,7 +2,7 @@
 {% block title %}{{ project.name }} — Accessibility Tracker{% endblock %}
 {% block content %}
 <p class="breadcrumb"><a href="{{ url_for('index') }}">Piattaforme</a>
-  {% if project.platform_id %} › <a href="{{ url_for('platform_detail', platform_id=project.platform_id) }}">{{ project.platform_name }}</a>{% endif %}
+  › <a href="{{ url_for('platform_detail', platform_slug=project.platform_slug) }}">{{ project.platform_name }}</a>
   › {{ project.name }}</p>
 <h1>{{ project.name }}</h1>
 {% if project.url %}<p><a href="{{ project.url }}" target="_blank" rel="noopener">{{ project.url }}</a></p>{% endif %}
@@ -22,13 +22,13 @@
     <span style="width: {{ stats.pct_avanzamento }}%"></span>
   </div>
   <p class="report-meta">Avanzamento valutazione: {{ stats.pct_avanzamento }}% ·
-     Conformità <strong>A/AA</strong> sui criteri valutati: {{ stats.pct_conformi }}%
+     Conformità sui criteri <strong>A/AA</strong>: {{ stats.pct_conformi }}%
      {% if stats.non_conformi_aaa %} · Anomalie AAA (escluse dal calcolo): {{ stats.non_conformi_aaa }}{% endif %}</p>
   {% endif %}
   <div class="report-actions">
-    <a class="btn" href="{{ url_for('report', project_id=project.id) }}">📄 Report anomalie</a>
-    <a class="btn btn-secondary" href="{{ url_for('export_csv', project_id=project.id) }}">Esporta CSV</a>
-    <a class="btn btn-secondary" href="{{ url_for('export_xlsx', project_id=project.id) }}">Esporta Excel</a>
+    <a class="btn" href="{{ url_for('report', platform_slug=project.platform_slug, project_slug=project.slug) }}"><span aria-hidden="true">📄</span> Report anomalie</a>
+    <a class="btn btn-secondary" href="{{ url_for('export_csv', platform_slug=project.platform_slug, project_slug=project.slug) }}">Esporta CSV</a>
+    <a class="btn btn-secondary" href="{{ url_for('export_xlsx', platform_slug=project.platform_slug, project_slug=project.slug) }}">Esporta Excel</a>
   </div>
 </div>
 
@@ -64,7 +64,7 @@
 
 <div class="card">
   <h2 style="margin-top:0">Aggiungi pagina</h2>
-  <form method="post" action="{{ url_for('new_page', project_id=project.id) }}">
+  <form method="post" action="{{ url_for('new_page', platform_slug=project.platform_slug, project_slug=project.slug) }}">
     <div class="form-row">
       <div>
         <label for="pg-name">Nome pagina *</label>
@@ -83,7 +83,7 @@
 
 <details class="card">
   <summary>Impostazioni progetto</summary>
-  <form method="post" action="{{ url_for('edit_project', project_id=project.id) }}" style="margin-top:1rem">
+  <form method="post" action="{{ url_for('edit_project', platform_slug=project.platform_slug, project_slug=project.slug) }}" style="margin-top:1rem">
     <div class="form-row">
       <div>
         <label for="ep-name">Nome *</label>
@@ -99,8 +99,7 @@
       </div>
       <div>
         <label for="ep-platform">Piattaforma</label>
-        <select id="ep-platform" name="platform_id">
-          <option value="">— Nessuna —</option>
+        <select id="ep-platform" name="platform_id" required>
           {% for pl in platforms %}
           <option value="{{ pl.id }}" {% if project.platform_id == pl.id %}selected{% endif %}>{{ pl.name }}</option>
           {% endfor %}
@@ -119,7 +118,7 @@
       <button type="submit">Salva modifiche</button>
     </p>
   </form>
-  <form method="post" action="{{ url_for('delete_project', project_id=project.id) }}"
+  <form method="post" action="{{ url_for('delete_project', platform_slug=project.platform_slug, project_slug=project.slug) }}"
         onsubmit="return confirm('Eliminare definitivamente il progetto «{{ project.name }}» con tutte le pagine e valutazioni?')">
     <button type="submit" class="btn-danger">Elimina progetto</button>
   </form>

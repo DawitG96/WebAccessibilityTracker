@@ -2,8 +2,8 @@
 {% block title %}{{ comp.name }} — {{ comp.page_name }}{% endblock %}
 {% block content %}
 <p class="breadcrumb">
-  <a href="{{ url_for('index') }}">Progetti</a> ›
-  <a href="{{ url_for('project_detail', project_id=comp.project_id) }}">{{ comp.project_name }}</a> ›
+  <a href="{{ url_for('index') }}">Piattaforme</a> ›
+  <a href="{{ url_for('project_detail', platform_slug=comp.platform_slug, project_slug=comp.project_slug) }}">{{ comp.project_name }}</a> ›
   <a href="{{ url_for('page_detail', page_id=comp.page_id) }}">{{ comp.page_name }}</a> ›
   {{ comp.name }}
 </p>
@@ -69,14 +69,15 @@
           <button type="submit" class="btn-danger btn-sm"
                   formaction="{{ url_for('remove_evaluation', eval_id=e.id) }}"
                   formnovalidate
-                  onclick="return confirm('Rimuovere il criterio {{ e.code }} dalla checklist di questo componente?')">✕</button>
+                  aria-label="Rimuovi il criterio {{ e.code }} dalla checklist"
+                  onclick="return confirm('Rimuovere il criterio {{ e.code }} dalla checklist di questo componente?')"><span aria-hidden="true">✕</span></button>
         </td>
       </tr>
       {% endfor %}
     </tbody>
   </table>
   <div class="save-bar">
-    <button type="submit">💾 Salva tutte le valutazioni</button>
+    <button type="submit"><span aria-hidden="true">💾</span> Salva tutte le valutazioni</button>
   </div>
 </form>
 
