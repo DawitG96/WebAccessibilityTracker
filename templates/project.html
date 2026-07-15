@@ -22,7 +22,7 @@
     <span style="width: {{ stats.pct_avanzamento }}%"></span>
   </div>
   <p class="report-meta">Avanzamento valutazione: {{ stats.pct_avanzamento }}% ·
-     Conformità <strong>A/AA</strong> sui criteri valutati: {{ stats.pct_conformi }}%
+     Conformità sui criteri <strong>A/AA</strong>: {{ stats.pct_conformi }}%
      {% if stats.non_conformi_aaa %} · Anomalie AAA (escluse dal calcolo): {{ stats.non_conformi_aaa }}{% endif %}</p>
   {% endif %}
   <div class="report-actions">

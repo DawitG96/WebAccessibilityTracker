@@ -43,8 +43,6 @@ STATS_SELECT = """
       SUM(e.status = 'da_verificare') AS da_verificare,
       SUM(e.status = 'non_applicabile') AS non_applicabili,
       SUM(e.status = 'non_conforme' AND e.work_status IN ('risolta', 'verificata')) AS risolte,
-      SUM(e.status = 'conforme' AND cr.level != 'AAA') AS conformi_aa,
-      SUM(e.status = 'non_conforme' AND cr.level != 'AAA') AS non_conformi_aa,
       SUM(e.status = 'non_conforme' AND cr.level = 'AAA') AS non_conformi_aaa
     FROM evaluations e
     JOIN criteria cr ON cr.id = e.criterion_id
@@ -53,24 +51,44 @@ STATS_SELECT = """
     JOIN projects pr ON pr.id = p.project_id
 """
 
+# Conformità per criterio distinto sul totale dei criteri A/AA esistenti (non sulle
+# rilevazioni): un criterio conta una sola volta per l'intero progetto/piattaforma
+# anche se violato in più componenti, e i criteri mai rilevati si assumono conformi.
+CRITERIA_NON_CONFORMI_SELECT = """
+    SELECT COUNT(DISTINCT cr.id) AS n
+    FROM evaluations e
+    JOIN criteria cr ON cr.id = e.criterion_id
+    JOIN components c ON c.id = e.component_id
+    JOIN pages p ON p.id = c.page_id
+    JOIN projects pr ON pr.id = p.project_id
+    WHERE cr.level != 'AAA' AND e.status = 'non_conforme' AND {where}
+"""
+
 
 def _finish_stats(row):
     s = dict(row)
     for k in s:
         s[k] = s[k] or 0
-    # Conformità calcolata sui soli criteri A/AA valutati (i AAA sono esclusi)
-    valutati_aa = s["conformi_aa"] + s["non_conformi_aa"]
-    s["pct_conformi"] = round(100 * s["conformi_aa"] / valutati_aa) if valutati_aa else 0
     s["pct_avanzamento"] = round(100 * (s["totale"] - s["da_verificare"]) / s["totale"]) if s["totale"] else 0
     return s
 
 
+def _pct_conformi(db, where, params):
+    totale_aa = db.execute("SELECT COUNT(*) FROM criteria WHERE level != 'AAA'").fetchone()[0]
+    non_conformi = db.execute(CRITERIA_NON_CONFORMI_SELECT.format(where=where), params).fetchone()["n"]
+    return round(100 * (totale_aa - non_conformi) / totale_aa) if totale_aa else 0
+
+
 def project_stats(db, project_id):
-    return _finish_stats(db.execute(STATS_SELECT + " WHERE p.project_id = ?", (project_id,)).fetchone())
+    s = _finish_stats(db.execute(STATS_SELECT + " WHERE p.project_id = ?", (project_id,)).fetchone())
+    s["pct_conformi"] = _pct_conformi(db, "p.project_id = ?", (project_id,))
+    return s
 
 
 def platform_stats(db, platform_id):
-    return _finish_stats(db.execute(STATS_SELECT + " WHERE pr.platform_id = ?", (platform_id,)).fetchone())
+    s = _finish_stats(db.execute(STATS_SELECT + " WHERE pr.platform_id = ?", (platform_id,)).fetchone())
+    s["pct_conformi"] = _pct_conformi(db, "pr.platform_id = ?", (platform_id,))
+    return s
 
 
 # ---------------------------------------------------------------- Dashboard
@@ -494,6 +512,24 @@ def type_form(type_id=None):
     criteria = db.execute("SELECT * FROM criteria ORDER BY sort_order").fetchall()
     db.close()
     return render_template("tipologia_form.html", ctype=ctype, criteria=criteria, selected=selected)
+
+
+@app.route("/criteri")
+def criteria_list():
+    db = get_db()
+    livello = request.args.get("livello", "").upper()
+    if livello not in ("A", "AA", "AAA"):
+        livello = ""
+    query = "SELECT * FROM criteria"
+    params = ()
+    if livello:
+        query += " WHERE level = ?"
+        params = (livello,)
+    criteria = db.execute(query + " ORDER BY sort_order", params).fetchall()
+    counts = {r["level"]: r["n"] for r in
+             db.execute("SELECT level, COUNT(*) AS n FROM criteria GROUP BY level").fetchall()}
+    db.close()
+    return render_template("criteri.html", criteria=criteria, livello=livello, counts=counts)
 
 
 @app.route("/tipologie/<int:type_id>/elimina", methods=["POST"])

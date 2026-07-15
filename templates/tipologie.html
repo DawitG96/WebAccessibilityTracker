@@ -3,7 +3,10 @@
 {% block content %}
 <h1>Tipologie di componente</h1>
 <p>Ogni tipologia definisce quali criteri WCAG vengono associati automaticamente ai nuovi componenti e i riferimenti WAI-ARIA da consultare.</p>
-<p><a class="btn" href="{{ url_for('type_form') }}"><span aria-hidden="true">＋</span> Nuova tipologia</a></p>
+<p>
+  <a class="btn" href="{{ url_for('type_form') }}"><span aria-hidden="true">＋</span> Nuova tipologia</a>
+  <a class="btn btn-secondary" href="{{ url_for('criteria_list') }}">Vedi tutti i criteri di successo</a>
+</p>
 
 <table>
   <thead>

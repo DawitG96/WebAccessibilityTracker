@@ -19,6 +19,7 @@
     <nav aria-label="Navigazione principale">
       <a href="{{ url_for('index') }}" {% if request.endpoint == 'index' %}aria-current="page"{% endif %}>Piattaforme</a>
       <a href="{{ url_for('types_list') }}" {% if request.endpoint == 'types_list' %}aria-current="page"{% endif %}>Tipologie componenti</a>
+      <a href="{{ url_for('criteria_list') }}" {% if request.endpoint == 'criteria_list' %}aria-current="page"{% endif %}>Criteri WCAG</a>
     </nav>
   </div>
 </header>
