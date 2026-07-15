@@ -86,6 +86,7 @@ legend { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: re
 
 .aria-box { background: var(--azzurro); border-left: 4px solid var(--blu); padding: .6rem .9rem; border-radius: 0 6px 6px 0; font-size: .9rem; }
 .footer { color: var(--grigio); font-size: .85rem; padding-bottom: 2rem; }
+.footer-version { font-size: .75rem; opacity: .7; margin-top: .3rem; }
 .save-bar { position: sticky; bottom: 0; background: #fff; border-top: 2px solid var(--blu); padding: .7rem 0; margin-top: 1rem; }
 details.history summary { cursor: pointer; font-weight: 600; }
 

@@ -22,7 +22,10 @@ Poi apri il browser su **http://localhost:8000**
 - I dati restano nella cartella `./data/tracker.db` (montata come volume): sopravvivono
   a riavvii e aggiornamenti del container.
 - Per fermare: `docker compose down`
-- Per ricostruire dopo una modifica al codice: `docker compose up -d --build`
+- Per ricostruire dopo una modifica al codice: `make up` — incrementa automaticamente la
+  patch version nel file `VERSION` (mostrata in fondo alla pagina) e poi esegue
+  `docker compose up -d --build`. Il comando `docker compose up -d --build` puro resta
+  disponibile ma non incrementa la versione.
 
 ## Avvio senza Docker (Python 3.10+)
 
