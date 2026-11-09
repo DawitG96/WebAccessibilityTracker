@@ -50,14 +50,19 @@
   <h2 id="scan-title" style="margin-top:0">Analisi automatica</h2>
   <p class="report-meta">Basta il sito live. Se il progetto ha già un'analisi del codice (fatta ora o in passato),
     il live si aggancia a rotte e componenti trovati: le pagine vengono unite per rotta, i componenti prendono
-    il nome dal codice e le rilevazioni del codice vengono confermate o smentite dal comportamento reale.</p>
+    il nome dal codice e le rilevazioni del codice vengono confermate (o annotate, se il live non le ritrova).</p>
   <form method="post" action="{{ url_for('start_scan', platform_slug=project.platform_slug, project_slug=project.slug) }}">
     <h3><label><input type="checkbox" name="codice" value="1" data-toggles="sc-code" {% if scan_dir_ok(project.code_dir) %}checked{% endif %}>
       Codice sorgente (facoltativo)</label></h3>
     <fieldset id="sc-code">
       <p class="report-meta">Angular, React/Next, Vue/Nuxt, Svelte o HTML: rotte, componenti caricati da ciascuna, template.</p>
       <label for="sc-dir">Cartella del progetto (quella con package.json) *</label>
-      <input type="text" id="sc-dir" name="cartella" required value="{{ project.code_dir or '' }}" placeholder="C:\progetti\mio-frontend">
+      <div class="dir-row">
+        <input type="text" id="sc-dir" name="cartella" required value="{{ project.code_dir or '' }}" placeholder="C:\progetti\mio-frontend">
+        <button type="button" class="btn-secondary" id="sc-browse"
+                data-url="{{ url_for('browse_dir') }}">Sfoglia…</button>
+      </div>
+      <p class="report-meta" id="sc-browse-msg" role="status"></p>
     </fieldset>
     <h3><label><input type="checkbox" name="live" value="1" data-toggles="sc-live" checked> Sito live</label></h3>
     <fieldset id="sc-live">
@@ -97,6 +102,21 @@
     const dlg = document.getElementById('scan-dialog');
     document.getElementById('scan-open').addEventListener('click', () => dlg.showModal());
     dlg.querySelector('[data-close]').addEventListener('click', () => dlg.close());
+    // la finestra di scelta cartella si apre sul computer che esegue il tracker
+    const browse = document.getElementById('sc-browse');
+    const msg = document.getElementById('sc-browse-msg');
+    browse.addEventListener('click', async () => {
+      browse.disabled = true;
+      msg.textContent = 'Scegli la cartella nella finestra che si è aperta…';
+      try {
+        const r = await (await fetch(browse.dataset.url, { method: 'POST' })).json();
+        if (r.path) document.getElementById('sc-dir').value = r.path;
+        msg.textContent = r.error || '';
+      } catch (e) {
+        msg.textContent = 'Impossibile aprire la finestra di scelta.';
+      }
+      browse.disabled = false;
+    });
     // un'analisi spenta disabilita i suoi campi (e i loro required)
     dlg.querySelectorAll('[data-toggles]').forEach((cb) => {
       const sync = () => { document.getElementById(cb.dataset.toggles).disabled = !cb.checked; };

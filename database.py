@@ -69,6 +69,7 @@ CREATE TABLE IF NOT EXISTS pages (
     url TEXT DEFAULT '',
     notes TEXT DEFAULT '',
     route TEXT,                               -- rotta del codice (es. /news/:id) che la pagina rappresenta
+    shot TEXT,                                -- mappa JSON dello screenshot dell'analisi live (riquadri dei componenti)
     created_at TEXT DEFAULT (datetime('now', 'localtime'))
 );
 
@@ -169,6 +170,8 @@ def init_db():
         if "route" not in _columns(conn, "pages"):
             conn.execute("ALTER TABLE pages ADD COLUMN route TEXT")
             conn.execute("UPDATE pages SET route = substr(url, 8) WHERE url LIKE 'codice:/%'")
+        if "shot" not in _columns(conn, "pages"):
+            conn.execute("ALTER TABLE pages ADD COLUMN shot TEXT")
         if "source" not in _columns(conn, "components"):
             conn.execute("ALTER TABLE components ADD COLUMN source TEXT")
             conn.execute("UPDATE components SET source = name WHERE notes LIKE 'Rilevato automaticamente (codice%'")

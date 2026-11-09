@@ -116,3 +116,15 @@ details.history summary { cursor: pointer; font-weight: 600; }
 .modal { width: min(92vw, 46rem); max-height: 90vh; border: 1px solid var(--bordo); border-radius: 8px; padding: 1.2rem; }
 .modal::backdrop { background: rgba(0, 0, 0, .45); }
 .modal fieldset:disabled { opacity: .55; }
+.dir-row { display: flex; gap: .5rem; align-items: center; }
+.dir-row input { flex: 1; }
+.shot-scroll { max-height: 80vh; overflow: auto; border: 1px solid var(--bordo); border-radius: 6px; margin-bottom: 1.5rem; }
+.shot { position: relative; width: 100%; }
+.shot img { display: block; width: 100%; height: 100%; }
+.shot-box { position: absolute; border: 2px solid #1d6fb8; }
+.shot-box.bad { border-color: #c0392b; }
+.shot-box:hover, .shot-box:focus { background: rgba(255, 196, 0, .25); z-index: 1; }
+.shot-box:hover::after, .shot-box:focus::after {
+  content: attr(data-label); position: absolute; left: 0; top: 100%; background: #111; color: #fff;
+  font-size: .8rem; padding: .2rem .4rem; white-space: nowrap; border-radius: 3px;
+}

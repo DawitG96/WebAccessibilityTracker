@@ -5,7 +5,7 @@ import threading
 from pathlib import Path
 from urllib.parse import urlparse
 
-from flask import flash, redirect, request, url_for
+from flask import flash, jsonify, redirect, request, url_for
 
 import database
 from database import get_db
@@ -61,7 +61,7 @@ def _scan(log, project_id, code_dir, url, max_pages, session):
             stats = import_results(db, project_id, pages, "live")
             log(f"Live: {stats['pagine']} pagine nuove, {stats['componenti']} componenti nuovi, "
                 f"{stats['collegati']} collegati al codice, {stats['anomalie']} non conformità "
-                f"({stats['confermate']} confermano il codice, {stats['smentite']} rilevazioni del codice smentite).")
+                f"({stats['confermate']} confermano il codice, {stats['non_riscontrate']} rilevazioni del codice non riscontrate).")
         JOBS[project_id]["esito"] = stats
     finally:
         db.close()
@@ -134,3 +134,21 @@ def scan_login(platform_slug, project_slug):
         _start(project["id"], _login, url, _session_path(project["id"]))
         flash("Si è aperto un browser: effettua il login e chiudi la finestra per salvare la sessione.", "ok")
     return redirect(url_for("project_detail", platform_slug=platform_slug, project_slug=project_slug))
+
+
+@app.route("/analisi/sfoglia", methods=["POST"])
+def browse_dir():
+    """Finestra nativa di scelta cartella, aperta sul computer che esegue il tracker."""
+    try:
+        import tkinter
+        from tkinter import filedialog
+        root = tkinter.Tk()
+    except Exception:  # Docker o server senza desktop (o Python senza tkinter)
+        return jsonify(error="Finestra di scelta non disponibile qui (es. dentro Docker): incolla il percorso.")
+    try:
+        root.withdraw()
+        root.attributes("-topmost", True)
+        path = filedialog.askdirectory(parent=root, title="Cartella del progetto da analizzare")
+    finally:
+        root.destroy()
+    return jsonify(path=os.path.normpath(path) if path else "")

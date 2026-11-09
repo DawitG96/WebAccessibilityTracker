@@ -353,7 +353,29 @@ def analyze_page(page, log=print, route=None):
     _reflow(page, res)
     for comp in page.evaluate("__a11y.list()"):
         res.touch(comp)
-    return res.as_dict(), page.evaluate("[...document.querySelectorAll('a[href]')].map(a => a.href)")
+    result = res.as_dict()
+    try:
+        result["shot"] = _shot(page, result)
+    except PlaywrightError as e:  # senza screenshot la pagina analizzata resta valida
+        log(f"  screenshot non riuscito: {e.message.splitlines()[0]}")
+    return result, page.evaluate("[...document.querySelectorAll('a[href]')].map(a => a.href)")
+
+
+def _shot(page, result, max_h=12000):
+    """Screenshot a pagina intera con i riquadri dei componenti (a fine analisi: lazy load già caricati)."""
+    page.keyboard.press("Escape")
+    page.evaluate("""() => { document.activeElement && document.activeElement.blur();
+                             window.scrollTo({ top: 0, left: 0, behavior: 'instant' }); }""")
+    page.mouse.move(0, 0)
+    page.wait_for_timeout(300)
+    shot = page.evaluate("__a11y.boxes()")
+    shot["w"], shot["h"] = DESKTOP["width"], min(shot["h"], max_h)
+    shot["image"] = page.screenshot(full_page=True, type="jpeg", quality=70, animations="disabled",
+                                    clip={"x": 0, "y": 0, "width": shot["w"], "height": shot["h"]})
+    rects = {(b["type"], b["location"], b["name"]): b["rect"] for b in shot.pop("roots")}
+    for c in result["components"]:
+        c["rect"] = rects.get((c["type"], c["location"], c["name"]))
+    return shot
 
 
 SHAPE = """() => { const m = document.querySelector('main,[role=main]') || document.body;

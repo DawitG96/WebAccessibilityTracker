@@ -84,19 +84,19 @@
   const norm = (s) => (s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
   let sources = new Set();
   const setSources = (names) => { sources = new Set(names.map(norm)); };
+  const tagSrc = (e) => {
+    const t = e.tagName.toLowerCase();
+    if (!t.includes('-')) return '';
+    return [norm(t), norm(t.slice(t.indexOf('-') + 1))].find(n => sources.has(n)) || '';
+  };
+  const tokSrc = (e) => [e.id, ...(typeof e.className === 'string' ? e.className.split(/\s+/) : [])]
+    .map(norm).find(n => n && sources.has(n)) || '';
   const src = (el) => {
-    if (!sources.size) return '';
+    if (!sources.size || !el) return '';
     const chain = [];
     for (let e = el; e && e.nodeType === 1; e = e.parentElement) chain.push(e);
-    for (const e of chain) {
-      const t = e.tagName.toLowerCase();
-      if (!t.includes('-')) continue;
-      for (const n of [norm(t), norm(t.slice(t.indexOf('-') + 1))]) if (sources.has(n)) return n;
-    }
-    for (const e of chain) {
-      const toks = [e.id, ...(typeof e.className === 'string' ? e.className.split(/\s+/) : [])];
-      for (const n of toks.map(norm)) if (n && sources.has(n)) return n;
-    }
+    for (const e of chain) { const n = tagSrc(e); if (n) return n; }
+    for (const e of chain) { const n = tokSrc(e); if (n) return n; }
     return '';
   };
 
@@ -311,6 +311,38 @@
 
   const list = () => roots.map(({ el, type, name, location }) => ({ type, name, location, src: src(el) }));
 
+  // ---- Mappa per lo screenshot: riquadri in coordinate di pagina -------------------
+  const box = (el) => {
+    let r = el.getBoundingClientRect();
+    if (r.width < 2 || r.height < 2) {  // custom element inline: unione dei figli
+      const rs = [...el.children].map(c => c.getBoundingClientRect()).filter(c => c.width > 1 && c.height > 1);
+      if (!rs.length) return null;
+      const x = Math.min(...rs.map(c => c.left)), y = Math.min(...rs.map(c => c.top));
+      r = { left: x, top: y, width: Math.max(...rs.map(c => c.right)) - x, height: Math.max(...rs.map(c => c.bottom)) - y };
+    }
+    return { x: Math.round(r.left + scrollX), y: Math.round(r.top + scrollY), w: Math.round(r.width), h: Math.round(r.height) };
+  };
+
+  // Componenti riconosciuti e, per ogni componente del codice, gli elementi più esterni che lo rendono.
+  const boxes = () => {
+    const out = { w: document.documentElement.scrollWidth, h: document.documentElement.scrollHeight, roots: [], sources: {} };
+    for (const r of roots) {
+      if (r.el === document.documentElement || r.el === document.body || !r.el.isConnected) continue;
+      const rect = box(r.el);
+      if (rect) out.roots.push({ type: r.type, name: r.name, location: r.location, rect });
+    }
+    if (!sources.size) return out;
+    for (const el of document.querySelectorAll('body *')) {
+      const n = tagSrc(el) || tokSrc(el);
+      if (!n || getComputedStyle(el).display === 'none') continue;
+      let outer = true;
+      for (let p = el.parentElement; p && outer; p = p.parentElement) if ((tagSrc(p) || tokSrc(p)) === n) outer = false;
+      const rect = outer && box(el);
+      if (rect && (out.sources[n] = out.sources[n] || []).length < 20) out.sources[n].push({ rect, sel: cssPath(el) });
+    }
+    return out;
+  };
+
   window.__a11y = { setSources, components, own, query, focusInfo, unreached, clickCandidates, toggles, state, motion,
-    cssPath, visible, accName, list, textInfo, hideText, bgContrast };
+    cssPath, visible, accName, list, textInfo, hideText, bgContrast, boxes };
 })();

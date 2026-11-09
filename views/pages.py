@@ -1,9 +1,13 @@
 # -*- coding: utf-8 -*-
 """Route per il dettaglio pagina e la gestione dei suoi componenti."""
-from flask import flash, redirect, render_template, request, url_for
+import json
+import os
+
+from flask import flash, jsonify, redirect, render_template, request, send_file, url_for
 
 from database import get_db
 from extensions import app
+from scanner.store import shot_path
 
 
 @app.route("/pagine/<int:page_id>/elimina", methods=["POST"])
@@ -42,8 +46,54 @@ def page_detail(page_id):
         FROM components c JOIN component_types t ON t.id = c.component_type_id
         WHERE c.page_id = ? ORDER BY c.created_at""", (page_id,)).fetchall()
     types = db.execute("SELECT * FROM component_types ORDER BY name").fetchall()
+    shot = _shot_map(db, page)
     db.close()
-    return render_template("page.html", page=page, components=components, types=types)
+    return render_template("page.html", page=page, components=components, types=types, shot=shot)
+
+
+def _shot_map(db, page):
+    """Riquadri dello screenshot con i dati dei componenti (anche quelli del layout comune su altre pagine)."""
+    if not page["shot"] or not os.path.exists(shot_path(page["id"])):
+        return None
+    shot = json.loads(page["shot"])
+    ids = sorted({b["id"] for b in shot["boxes"]})
+    comps = {r["id"]: dict(r) for r in db.execute(f"""
+        SELECT c.id, c.name, c.source, c.location, t.name AS type_name,
+          (SELECT GROUP_CONCAT(cr.code, ' ') FROM evaluations e JOIN criteria cr ON cr.id = e.criterion_id
+           WHERE e.component_id = c.id AND e.status = 'non_conforme') AS anomalie
+        FROM components c JOIN component_types t ON t.id = c.component_type_id
+        WHERE c.id IN ({','.join('?' * len(ids))})""", ids)} if ids else {}
+    # i riquadri grandi sotto, i piccoli sopra: restano tutti cliccabili
+    shot["boxes"] = sorted(({**b, **comps[b["id"]]} for b in shot["boxes"] if b["id"] in comps),
+                           key=lambda b: -b["rect"]["w"] * b["rect"]["h"])
+    return shot
+
+
+@app.route("/pagine/<int:page_id>/screenshot")
+def page_screenshot(page_id):
+    return send_file(shot_path(page_id), mimetype="image/jpeg") if os.path.exists(shot_path(page_id)) else ("", 404)
+
+
+@app.route("/pagine/<int:page_id>/mappa.json")
+def page_map(page_id):
+    """Mappa elemento ↔ componente ↔ criteri, per Playwright o un agente AI che deve correggere la pagina."""
+    db = get_db()
+    page = db.execute("SELECT * FROM pages WHERE id = ?", (page_id,)).fetchone()
+    shot = _shot_map(db, page) if page else None
+    db.close()
+    if not shot:
+        return jsonify(error="Nessuna mappa: esegui l'analisi live di questa pagina."), 404
+    comps = {}
+    for b in shot["boxes"]:
+        c = comps.setdefault(b["id"], {
+            "id": b["id"], "nome": b["name"], "tipologia": b["type_name"],
+            "componente_codice": b["source"], "file": b["location"] if b["source"] else None,
+            "non_conformi": (b["anomalie"] or "").split(),
+            "url": url_for("component_detail", component_id=b["id"], _external=True), "elementi": []})
+        c["elementi"].append({"selettore": b["sel"], "riquadro": b["rect"]})
+    return jsonify(pagina={"id": page["id"], "nome": page["name"], "url": page["url"], "rotta": page["route"]},
+                   screenshot=url_for("page_screenshot", page_id=page_id, _external=True),
+                   dimensioni={"w": shot["w"], "h": shot["h"]}, componenti=list(comps.values()))
 
 
 @app.route("/pagine/<int:page_id>/componenti/nuovo", methods=["POST"])

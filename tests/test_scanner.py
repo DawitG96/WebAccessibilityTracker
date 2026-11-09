@@ -3,6 +3,7 @@
 
 Eseguire con: python tests/test_scanner.py
 """
+import json
 import os
 import sys
 import tempfile
@@ -138,7 +139,7 @@ def test_live_merge():
     with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as d:
         import database
         database.DB_PATH = os.path.join(d, "t.db")
-        from scanner.store import code_sources, import_results
+        from scanner.store import code_sources, import_results, shot_path
         database.init_db()
         db = database.get_db()
         pl = db.execute("INSERT INTO platforms (name, slug) VALUES ('p', 'p')").lastrowid
@@ -150,19 +151,26 @@ def test_live_merge():
             # header (layout) con lo stesso criterio del codice: conferma
             {"type": "Navbar / Navigazione", "name": "Menu principale", "location": "nav", "src": "header",
              "findings": [{"code": "4.1.2", "note": "bottone senza nome"}], "passed": []},
-            # home: axe ha verificato 1.1.1 senza violazioni, la rilevazione del codice è smentita
+            # home: axe ha verificato 1.1.1 senza violazioni, la rilevazione del codice resta non conforme con una nota
             {"type": "Testo / Contenuto", "name": "Testo in «pagina»", "location": "main", "src": "home",
              "findings": [], "passed": ["1.1.1"]},
             {"type": "Link", "name": "Link in «pagina»", "location": "body", "src": "",
-             "findings": [{"code": "2.4.4", "note": "link vago"}], "passed": []}]}]
+             "findings": [{"code": "2.4.4", "note": "link vago"}], "passed": [], "rect": {"x": 0, "y": 0, "w": 9, "h": 9}}],
+            "shot": {"w": 100, "h": 50, "image": b"jpg", "sources": {
+                "header": [{"rect": {"x": 0, "y": 0, "w": 100, "h": 10}, "sel": "app-header"}]}}}]
         stats = import_results(db, pr, live, "live")
         assert stats["pagine"] == 0 and stats["componenti"] == 1 and stats["collegati"] == 2, stats
-        assert stats["confermate"] == 1 and stats["smentite"] == 1, stats
+        assert stats["confermate"] == 1 and stats["non_riscontrate"] == 1, stats
         assert db.execute("SELECT url FROM pages WHERE route = '/'").fetchone()[0] == "http://x/"
+        # mappa dello screenshot: riquadro del componente live e del componente del codice (dal layout)
+        page_id, shot = db.execute("SELECT id, shot FROM pages WHERE route = '/'").fetchone()
+        header_id = db.execute("SELECT id FROM components WHERE source = 'header'").fetchone()[0]
+        boxes = json.loads(shot)["boxes"]
+        assert os.path.exists(shot_path(page_id)) and len(boxes) == 2 and boxes[1]["id"] == header_id, boxes
         assert db.execute("SELECT name FROM components WHERE source = 'header'").fetchone()[0] == "header — Menu principale"
         st = {r[0]: r[1] for r in db.execute("""SELECT c.source || ' ' || cr.code, e.status FROM evaluations e
               JOIN components c ON c.id = e.component_id JOIN criteria cr ON cr.id = e.criterion_id""")}
-        assert st["home 1.1.1"] == "da_verificare" and st["header 4.1.2"] == "non_conforme", st
+        assert st["home 1.1.1"] == "non_conforme" and st["header 4.1.2"] == "non_conforme", st
         # live senza codice e codice importato dopo: la pagina live viene adottata dalla rotta
         pr2 = db.execute("INSERT INTO projects (name, slug, platform_id) VALUES ('y', 'y', ?)", (pl,)).lastrowid
         import_results(db, pr2, [{"name": "/area/profilo", "url": "http://x/area/profilo", "components": []}], "live")

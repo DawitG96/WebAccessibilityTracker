@@ -53,7 +53,7 @@ def main():
 
     if args.json:
         with open(args.json, "w", encoding="utf-8") as f:
-            json.dump(pages, f, ensure_ascii=False, indent=1)
+            json.dump(pages, f, ensure_ascii=False, indent=1, default=lambda b: None)  # screenshot esclusi
     for p in pages:
         n = sum(len(c["findings"]) for c in p["components"])
         print(f"{p['name']}: {len(p['components'])} componenti, {n} rilevazioni")

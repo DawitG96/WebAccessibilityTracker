@@ -10,6 +10,25 @@
 {% if page.url %}<p><a href="{{ page.url }}" target="_blank" rel="noopener">{{ page.url }}</a></p>{% endif %}
 {% if page.notes %}<p>{{ page.notes }}</p>{% endif %}
 
+{% if shot %}
+<h2>Mappa della pagina</h2>
+<p class="report-meta">Screenshot dell'ultima analisi live: ogni riquadro apre la checklist del componente
+  (rosso = con non conformità). <a href="{{ url_for('page_map', page_id=page.id) }}">Mappa in JSON</a>
+  per Playwright o un agente AI.</p>
+<div class="shot-scroll">
+  <div class="shot" style="aspect-ratio: {{ shot.w }} / {{ shot.h }}">
+    <img src="{{ url_for('page_screenshot', page_id=page.id) }}" alt="Screenshot della pagina {{ page.name }}">
+    {% for b in shot.boxes %}
+    {% set label = b.name ~ ' (' ~ b.type_name ~ ')' ~ (', non conformi: ' ~ b.anomalie if b.anomalie else '') %}
+    <a class="shot-box{% if b.anomalie %} bad{% endif %}" href="{{ url_for('component_detail', component_id=b.id) }}"
+       style="left: {{ 100 * b.rect.x / shot.w }}%; top: {{ 100 * b.rect.y / shot.h }}%;
+              width: {{ 100 * b.rect.w / shot.w }}%; height: {{ 100 * b.rect.h / shot.h }}%"
+       aria-label="{{ label }}" data-label="{{ label }}"></a>
+    {% endfor %}
+  </div>
+</div>
+{% endif %}
+
 <h2>Componenti rilevati ({{ components|length }})</h2>
 {% if components %}
 <table>

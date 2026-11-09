@@ -3,11 +3,15 @@
 
 L'analisi live si aggancia a quanto già trovato dal codice: le pagine vengono associate alle
 rotte, i componenti ai componenti del codice (stesso tag/classe nel DOM) e le rilevazioni del
-codice vengono confermate o smentite dal comportamento reale.
+codice vengono confermate dal comportamento reale (o annotate se il live non le ritrova).
 """
+import json
+import os
 import re
 from datetime import datetime
 from urllib.parse import urlparse
+
+import database
 
 MAX_NOTE_ITEMS = 15
 GENERIC = "Altro / Generico"
@@ -81,23 +85,22 @@ def _apply(db, comp_id, by_code, source, stamp, criteria, stats):
         stats["confermate"] += confirmed
 
 
-def _refute(db, comp_id, codes, stamp, criteria, stats):
-    """Rilevazioni del codice che il live ha verificato senza violazioni tornano «da verificare»."""
+def _unconfirmed(db, comp_id, codes, stamp, criteria, stats):
+    """Rilevazioni del codice che il live non ritrova: restano non conformi (basta un elemento che
+    viola il criterio, e il live può non aver visto proprio quello), con una nota da controllare."""
     for code in codes:
         if code not in criteria:
             continue
         e = db.execute("""SELECT * FROM evaluations WHERE component_id = ? AND criterion_id = ?
-                          AND status = 'non_conforme' AND work_status = 'aperta'""",
-                       (comp_id, criteria[code])).fetchone()
+                          AND status = 'non_conforme'""", (comp_id, criteria[code])).fetchone()
         if not e or "[Analisi automatica codice" not in (e["note"] or ""):
             continue
-        note = _merge_note(e["note"], "live", f"[Analisi automatica live, {stamp}] — non confermata: sul sito "
-                                              "il criterio è stato verificato su questo componente senza violazioni. "
-                                              "Controlla a mano.")
-        _history(db, e, "da_verificare", "", "Rilevazione del codice non confermata dall'analisi live")
-        db.execute("""UPDATE evaluations SET status = 'da_verificare', work_status = '', note = ?,
-                      updated_at = datetime('now', 'localtime') WHERE id = ?""", (note, e["id"]))
-        stats["smentite"] += 1
+        note = _merge_note(e["note"], "live", f"[Analisi automatica live, {stamp}] — non riscontrata: sul sito "
+                                              "gli elementi verificati di questo componente rispettano il criterio. "
+                                              "Controlla l'elemento indicato dal codice (falso positivo o non mostrato).")
+        db.execute("UPDATE evaluations SET note = ?, updated_at = datetime('now', 'localtime') WHERE id = ?",
+                   (note, e["id"]))
+        stats["non_riscontrate"] += 1
 
 
 def _add_type_criteria(db, comp_id, type_id):
@@ -140,6 +143,19 @@ def _code_candidates(db, project_id, page_id):
     return {norm(r["source"]): r for r in rows}  # quelli della pagina vincono (ordinati per ultimi)
 
 
+def shot_path(page_id):
+    return os.path.join(os.path.dirname(database.DB_PATH), "screenshot", f"pagina-{page_id}.jpg")
+
+
+def _save_shot(db, page_id, shot, boxes):
+    """Screenshot su file accanto al database; la mappa dei riquadri (id componente → posizione) nella pagina."""
+    os.makedirs(os.path.dirname(shot_path(page_id)), exist_ok=True)
+    with open(shot_path(page_id), "wb") as f:
+        f.write(shot["image"])
+    db.execute("UPDATE pages SET shot = ? WHERE id = ?",
+               (json.dumps({"w": shot["w"], "h": shot["h"], "boxes": boxes}), page_id))
+
+
 def _human(label):
     # ponytail: euristica, le etichette da aria-label/titoli hanno spazi o maiuscole, le classi CSS no
     return label and "«" not in label and label != "Struttura della pagina" and not re.fullmatch(r"[a-z0-9_ -]+", label)
@@ -154,7 +170,7 @@ def import_results(db, project_id, pages, source):
     types = {r["name"]: r["id"] for r in db.execute("SELECT id, name FROM component_types")}
     criteria = {r["code"]: r["id"] for r in db.execute("SELECT id, code FROM criteria")}
     stats = {"pagine": 0, "componenti": 0, "anomalie": 0, "ignorate": 0, "collegati": 0,
-             "confermate": 0, "smentite": 0}
+             "confermate": 0, "non_riscontrate": 0}
     matched = {}  # componente del codice → rilevazioni e verifiche superate su tutte le pagine live
 
     for p in pages:
@@ -162,7 +178,7 @@ def import_results(db, project_id, pages, source):
         cands = _code_candidates(db, project_id, page_id) if source == "live" else {}
         path = urlparse(p["url"]).path or "/"
 
-        own = {}
+        own, boxes = {}, []
         for c in p["components"]:
             target = cands.get(c.get("src") or "")
             if target is not None:
@@ -199,6 +215,14 @@ def import_results(db, project_id, pages, source):
             for f in c["findings"]:
                 by_code.setdefault(f["code"], []).append(f["note"])
             _apply(db, comp_id, by_code, source, stamp, criteria, stats)
+            if c.get("rect"):
+                boxes.append({"id": comp_id, "rect": c["rect"], "sel": c["location"]})
+
+        if p.get("shot"):
+            for name, items in p["shot"]["sources"].items():
+                if name in cands:
+                    boxes += [{"id": cands[name]["id"], **it} for it in items]
+            _save_shot(db, page_id, p["shot"], boxes)
 
     for comp_id, m in matched.items():
         row, roots = m["row"], [c for c in m["live"] if "«" not in c["name"] and c["type"] != "Struttura pagina / Intestazioni"]
@@ -210,6 +234,6 @@ def import_results(db, project_id, pages, source):
         if label and row["name"] == row["source"]:
             db.execute("UPDATE components SET name = ? WHERE id = ?", (f"{row['source']} — {label}", comp_id))
         _apply(db, comp_id, m["findings"], source, stamp, criteria, stats)
-        _refute(db, comp_id, m["passed"] - set(m["findings"]), stamp, criteria, stats)
+        _unconfirmed(db, comp_id, m["passed"] - set(m["findings"]), stamp, criteria, stats)
     db.commit()
     return stats

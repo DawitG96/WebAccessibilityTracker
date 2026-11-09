@@ -76,9 +76,14 @@ Con il codice, il live si aggancia a quanto trovato:
 - gli elementi del DOM vengono collegati al componente del codice che li genera (tag Angular
   `app-*`, oppure classe/id con lo stesso nome): le rilevazioni live finiscono su quel componente,
   che prende tipologia e nome leggibile dal sito;
-- una rilevazione del codice trovata anche dal live viene **confermata**; se invece il live ha
-  verificato lo stesso criterio sul componente senza violazioni, torna **da verificare** con una
-  nota (solo se è ancora «Aperta» e non toccata a mano).
+- una rilevazione del codice trovata anche dal live viene **confermata**; se il live non la
+  ritrova resta comunque **non conforme** (basta un elemento che viola il criterio, e il live può
+  non aver visto proprio quello), con una nota che invita a controllare l'elemento indicato.
+
+Ogni pagina analizzata dal live ha una **mappa**: lo screenshot con i riquadri dei componenti,
+cliccabili per aprirne la checklist, e la stessa mappa in JSON (`/pagine/<id>/mappa.json`:
+selettore, posizione, file del codice e criteri non conformi di ogni componente) per strumenti
+come Playwright o un agente AI.
 
 La cartella del codice viene ricordata per il progetto.
 
