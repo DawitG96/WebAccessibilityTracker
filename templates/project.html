@@ -32,6 +32,56 @@
   </div>
 </div>
 
+{% set job = scan_job(project.id) %}
+<details class="card" {% if job %}open{% endif %}>
+  <summary>Analisi automatica</summary>
+  {% if job %}
+  <div role="status" style="margin-top:1rem">
+    <p><strong>Ultima analisi: {{ job.stato }}</strong></p>
+    <pre class="report-meta" style="white-space:pre-wrap">{{ job.log|join('\n') }}</pre>
+  </div>
+  {% if job.stato == 'in corso' %}<script>setTimeout(() => location.reload(), 5000);</script>{% endif %}
+  {% endif %}
+  <form method="post" action="{{ url_for('start_scan', platform_slug=project.platform_slug, project_slug=project.slug) }}" style="margin-top:1rem">
+    <input type="hidden" name="modo" value="live">
+    <h3>Sito in esecuzione (deployato o localhost)</h3>
+    <p class="report-meta">Browser reale: regole axe-core, contrasto misurato sui pixel, giro completo con Tab
+      (focus visibile, coperto, trappole), elementi cliccabili non raggiungibili da tastiera, menu che si aprono
+      solo col mouse, reflow a 320px, caroselli senza pausa.</p>
+    <div class="form-row">
+      <div>
+        <label for="sc-url">URL di partenza *</label>
+        <input type="url" id="sc-url" name="url" required value="{{ project.url }}" placeholder="https://… o http://localhost:4200">
+      </div>
+      <div>
+        <label for="sc-pages">Pagine massime</label>
+        <input type="number" id="sc-pages" name="pagine" min="1" max="100" value="10">
+      </div>
+    </div>
+    <p><label><input type="checkbox" name="usa_sessione" {% if scan_session(project.id) %}checked{% else %}disabled{% endif %}>
+      Usa la sessione di login salvata{% if not scan_session(project.id) %} (nessuna sessione salvata){% endif %}</label></p>
+    <p><button type="submit">Analizza il sito</button></p>
+  </form>
+  <form method="post" action="{{ url_for('scan_login', platform_slug=project.platform_slug, project_slug=project.slug) }}">
+    <div class="form-row">
+      <div>
+        <label for="sc-login">Pagina di login (per aree autenticate)</label>
+        <input type="url" id="sc-login" name="url" value="{{ project.url }}" placeholder="https://…/login">
+      </div>
+    </div>
+    <p><button type="submit" class="btn-secondary">Apri il browser per il login</button></p>
+  </form>
+  <form method="post" action="{{ url_for('start_scan', platform_slug=project.platform_slug, project_slug=project.slug) }}">
+    <input type="hidden" name="modo" value="codice">
+    <h3>Codice sorgente</h3>
+    <p class="report-meta">Angular, React/Next, Vue/Nuxt, Svelte o HTML: ricava le rotte, i componenti caricati
+      da ciascuna e analizza i template.</p>
+    <label for="sc-dir">Cartella del progetto (quella con package.json) *</label>
+    <input type="text" id="sc-dir" name="cartella" required placeholder="C:\progetti\mio-frontend">
+    <p><button type="submit">Analizza il codice</button></p>
+  </form>
+</details>
+
 <h2>Pagine ({{ pages|length }})</h2>
 {% if pages %}
 <table>

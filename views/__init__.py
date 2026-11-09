@@ -7,5 +7,6 @@ from . import (  # noqa: F401
     platforms,
     projects,
     reports,
+    scans,
     types,
 )

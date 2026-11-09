@@ -31,6 +31,7 @@ Poi apri il browser su **http://localhost:8000**
 
 ```bash
 pip install -r requirements.txt
+python -m playwright install chromium
 python app.py
 ```
 
@@ -54,6 +55,56 @@ Poi apri **http://localhost:8000** (senza Docker l'app ascolta su 127.0.0.1).
 
 Dalla voce di menu **Tipologie componenti** puoi personalizzare le tipologie predefinite
 o crearne di nuove, scegliendo quali criteri WCAG associare.
+
+## Analisi automatica
+
+Dalla pagina del progetto (sezione **Analisi automatica**) o da riga di comando con `scan.py`.
+I risultati vengono importati nel progetto: le pagine e i componenti trovati vengono creati
+con la checklist della loro tipologia, e i criteri violati diventano **non conformi**
+(stato «Aperta») con le occorrenze nelle note. Le valutazioni già marcate a mano come
+conformi o non applicabili non vengono sovrascritte. Ripetere l'analisi aggiorna gli stessi
+componenti senza duplicarli.
+
+**Sito in esecuzione** (deployato o in localhost), con un browser Chromium reale:
+
+- riconoscimento dei componenti dal DOM e dall'uso (navigazione, menu, dialog e banner
+  cookie, caroselli, form, tabelle…); gli elementi con un gestore click vengono letti dal
+  browser, così un `<div>` cliccabile viene riconosciuto come controllo;
+- regole WCAG 2.0–2.2 A/AA di [axe-core](https://github.com/dequelabs/axe-core) (messaggi in italiano);
+- contrasto **misurato sui pixel** per i testi su immagini, gradienti o sovrapposizioni,
+  che axe non sa decidere: lo sfondo viene letto da uno screenshot col testo nascosto;
+- giro completo con **Tab**: focus visibile (confronto screenshot con e senza focus),
+  focus su elementi nascosti o coperti (es. header sticky), trappole da tastiera, cambi di
+  pagina al focus;
+- elementi cliccabili **non raggiungibili da tastiera** e senza ruolo;
+- menu/toggle provati con Invio e Spazio e poi col click: segnala quelli che funzionano solo
+  col mouse e quelli che non aggiornano `aria-expanded` (anche in vista mobile);
+- reflow a 320px e caroselli che si muovono da soli senza pausa.
+
+Il crawl segue i link dello stesso sito ed evita quelli di logout. Per le **aree
+autenticate** usa «Apri il browser per il login» (o `--login` da riga di comando): fai il
+login a mano, chiudi la finestra e la sessione viene salvata in `data/sessioni/` per le
+analisi successive. Le credenziali non passano mai dal tracker. Il login interattivo
+richiede un desktop, quindi non funziona dentro Docker: lì usa un file di sessione
+creato da riga di comando.
+
+**Codice sorgente** (Angular, React/Next, Vue/Nuxt, Svelte, HTML): ricava le rotte, segue
+l'albero dei componenti caricati da ciascuna (più il layout comune) e analizza i template:
+immagini senza alt, elementi cliccabili non nativi senza ruolo/tabindex/tastiera, link e
+bottoni senza nome, campi senza etichetta, tabindex positivi, `aria-hidden` su elementi
+focalizzabili, iframe senza title, video in autoplay o senza sottotitoli, hover senza
+focus, `outline: none` senza alternativa, lingua e zoom in `index.html`. È un'analisi
+euristica: contrasto, focus e comportamento reale vanno verificati con l'analisi live.
+
+```bash
+python scan.py live https://example.com --pagine 10 --progetto 3
+python scan.py live http://localhost:4200 --login --progetto 3
+python scan.py codice C:\progetti\mio-frontend --progetto 3
+python tests/test_scanner.py    # verifica dell'analisi del codice
+```
+
+`--progetto` è l'id del progetto in cui importare; senza, stampa solo un riepilogo
+(`--json file.json` salva i risultati grezzi).
 
 ## Fonti
 
