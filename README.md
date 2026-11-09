@@ -58,12 +58,29 @@ o crearne di nuove, scegliendo quali criteri WCAG associare.
 
 ## Analisi automatica
 
-Dalla pagina del progetto (sezione **Analisi automatica**) o da riga di comando con `scan.py`.
-I risultati vengono importati nel progetto: le pagine e i componenti trovati vengono creati
-con la checklist della loro tipologia, e i criteri violati diventano **non conformi**
-(stato «Aperta») con le occorrenze nelle note. Le valutazioni già marcate a mano come
-conformi o non applicabili non vengono sovrascritte. Ripetere l'analisi aggiorna gli stessi
+Dalla pagina del progetto (bottone **Avvia analisi automatica…**, che apre un modale) o da riga
+di comando con `scan.py`. I risultati vengono importati nel progetto: le pagine e i componenti
+trovati vengono creati con la checklist della loro tipologia, e i criteri violati diventano
+**non conformi** (stato «Aperta») con le occorrenze nelle note. Le valutazioni già marcate a mano
+come conformi o non applicabili non vengono sovrascritte. Ripetere l'analisi aggiorna gli stessi
 componenti senza duplicarli.
+
+Di solito basta il **sito live** dall'URL radice. Se il codice è disponibile, nel modale si può
+lanciare insieme anche l'analisi del **codice** (prima del live); se qualcuno l'ha già fatta in
+passato sul progetto, il live la usa comunque. Senza codice, le pagine sorelle con la stessa
+struttura (es. `/regione/piemonte` e `/regione/lombardia`) vengono analizzate una volta sola.
+Con il codice, il live si aggancia a quanto trovato:
+
+- ogni URL viene associata alla sua rotta (`/news/42` → `/news/:id`): la pagina del codice prende
+  l'URL reale e il crawl analizza una sola URL per rotta, partendo anche dalle rotte note;
+- gli elementi del DOM vengono collegati al componente del codice che li genera (tag Angular
+  `app-*`, oppure classe/id con lo stesso nome): le rilevazioni live finiscono su quel componente,
+  che prende tipologia e nome leggibile dal sito;
+- una rilevazione del codice trovata anche dal live viene **confermata**; se invece il live ha
+  verificato lo stesso criterio sul componente senza violazioni, torna **da verificare** con una
+  nota (solo se è ancora «Aperta» e non toccata a mano).
+
+La cartella del codice viene ricordata per il progetto.
 
 **Sito in esecuzione** (deployato o in localhost), con un browser Chromium reale:
 
@@ -103,7 +120,8 @@ python scan.py codice C:\progetti\mio-frontend --progetto 3
 python tests/test_scanner.py    # verifica dell'analisi del codice
 ```
 
-`--progetto` è l'id del progetto in cui importare; senza, stampa solo un riepilogo
+`--progetto` è l'id del progetto in cui importare (per `live` usa anche rotte e componenti già
+trovati dal codice di quel progetto); senza, stampa solo un riepilogo
 (`--json file.json` salva i risultati grezzi).
 
 ## Fonti

@@ -474,6 +474,10 @@ def analyze_component(proj, path):
     name = re.sub(r"\.(component|page|view)$", "", Path(path).stem)
     if name in ("page", "+page") or (name == "index" and not rel.endswith(".html")):
         name = Path(path).parent.name or name
+    # Angular: il nome viene dal selettore (app-foo → foo), lo stesso tag che l'analisi live trova nel DOM
+    sel = re.search(r"selector\s*:\s*['\"]([a-z][\w]*-([\w-]+))['\"]", proj.text.get(path, ""))
+    if sel:
+        name = sel.group(2)
     return {"type": guess_type(name, markup), "name": name, "location": rel,
             "findings": [{"code": c, "note": f"{where} — {n}"} for where, c, n in findings]}
 
@@ -506,7 +510,7 @@ def scan_project(root, log=print):
     for path, start in dict.fromkeys(routes):
         files = [f for f in tree(start, children) if f not in shell]
         log(f"  {path}: {len(files)} componenti")
-        pages.append({"name": f"{path} (codice)", "url": f"codice:{path}",
+        pages.append({"name": f"{path} (codice)", "url": f"codice:{path}", "route": path,
                       "notes": f"Rotta definita in {proj.rel(start)} ({fw}).",
                       "components": [comp(f) for f in files]})
     # file globali: index.html e fogli di stile non legati a un componente

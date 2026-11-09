@@ -11,10 +11,12 @@ import json
 import re
 import time
 from pathlib import Path
-from urllib.parse import urldefrag, urlparse
+from urllib.parse import urldefrag, urljoin, urlparse
 
 from playwright.sync_api import Error as PlaywrightError
 from playwright.sync_api import sync_playwright
+
+from scanner.store import match_route
 
 HERE = Path(__file__).parent
 AXE = (HERE / "vendor" / "axe.min.js").read_text(encoding="utf-8")
@@ -32,14 +34,18 @@ def wcag_codes(tags):
 
 
 class PageResult:
-    """Componenti di una pagina con le rilevazioni; chiave componente = (tipologia, posizione, nome)."""
+    """Componenti di una pagina con rilevazioni e verifiche superate.
 
-    def __init__(self, url, title):
-        self.url, self.title = url, title
-        self.components = {}
+    Chiave componente = (tipologia, posizione, nome, componente del codice a cui appartiene).
+    """
+
+    def __init__(self, url, title, route=None):
+        self.url, self.title, self.route = url, title, route
+        self.components, self.passes = {}, {}
 
     def touch(self, owner):
-        key = (owner["type"], owner["location"], owner["name"])
+        key = (owner["type"], owner["location"], owner["name"], owner.get("src", ""))
+        self.passes.setdefault(key, set())
         return self.components.setdefault(key, [])
 
     def add(self, owner, codes, note):
@@ -47,20 +53,27 @@ class PageResult:
         for code in ([codes] if isinstance(codes, str) else codes):
             bucket.append({"code": code, "note": note})
 
+    def passed(self, owner, codes):
+        self.touch(owner)
+        self.passes[(owner["type"], owner["location"], owner["name"], owner.get("src", ""))].update(codes)
+
     def as_dict(self):
         path = urlparse(self.url).path or "/"
         return {
-            "name": "Home" if path == "/" else path,
+            "name": self.route or ("Home" if path == "/" else path),
             "url": self.url,
+            "route": self.route,
             "notes": f"Titolo: {self.title}",
-            "components": [{"type": t, "location": loc, "name": n, "findings": f}
-                           for (t, loc, n), f in self.components.items()],
+            "components": [{"type": t, "location": loc, "name": n, "src": src, "findings": f,
+                            "passed": sorted(self.passes[(t, loc, n, src)])}
+                           for (t, loc, n, src), f in self.components.items()],
         }
 
 
 def _inject(page):
     page.evaluate(AXE)
     page.evaluate(PROBES)
+    page.evaluate("(n) => __a11y.setSources(n)", getattr(page, "a11y_sources", []))
     _mark_click_listeners(page)
     for comp in page.evaluate("__a11y.components()"):
         yield comp
@@ -89,6 +102,11 @@ def _goto(page, url):
         page.wait_for_load_state("networkidle", timeout=5000)
     except PlaywrightError:
         pass  # analytics e annunci tengono la rete sempre attiva
+    try:  # le SPA caricano i dati dopo il load: si aspetta che spariscano gli indicatori di caricamento
+        page.wait_for_function("""() => ![...document.querySelectorAll('[aria-busy=true],[class*=spinner],[class*=loading]')]
+            .some(e => e.getClientRects().length)""", timeout=8000)
+    except PlaywrightError:
+        pass
     page.wait_for_timeout(1000)
 
 
@@ -96,11 +114,14 @@ def _axe(page, res):
     violations = page.evaluate("""async ([locale, tags]) => {
         axe.configure({ locale });
         const r = await axe.run(document, { runOnly: { type: 'tag', values: tags },
-                                            resultTypes: ['violations', 'incomplete'], iframes: false });
+                                            resultTypes: ['violations', 'incomplete', 'passes'], iframes: false });
         const pack = (v) => ({ id: v.id, help: v.help, tags: v.tags, impact: v.impact,
           nodes: v.nodes.slice(0, 60).map(n => ({ owner: __a11y.own(__a11y.query(n.target)),
             target: n.target.join(' '), summary: (n.failureSummary || '').split('\\n').slice(1, 3).join(' ').trim() })) });
-        return { violations: r.violations.map(pack),
+        // verifiche superate: servono solo sui componenti collegati al codice
+        const passes = r.passes.map(v => ({ tags: v.tags, owners: v.nodes.slice(0, 200)
+          .map(n => __a11y.own(__a11y.query(n.target))).filter(o => o.src) })).filter(v => v.owners.length);
+        return { violations: r.violations.map(pack), passes,
                  contrast: r.incomplete.filter(v => v.id === 'color-contrast').map(pack) };
     }""", [AXE_IT, AXE_TAGS])
     contrast = [n["target"] for v in violations["contrast"] for n in v["nodes"]]
@@ -109,6 +130,9 @@ def _axe(page, res):
         for n in v["nodes"]:
             note = f"[axe:{v['id']}, {v['impact']}] {v['help']}. {n['summary']} — {n['target']}"
             res.add(n["owner"], codes, note.strip())
+    for v in violations["passes"]:
+        for owner in v["owners"]:
+            res.passed(owner, wcag_codes(v["tags"]))
     return contrast
 
 
@@ -208,8 +232,12 @@ def _keyboard_walk(page, res, max_stops=250):
             res.add(f["owner"], "2.4.7", f"Il focus da tastiera finisce su un elemento non visibile: {label}.")
         elif f["obscured"]:
             res.add(f["owner"], "2.4.11", f"Elemento con focus coperto da {f['obscured']}: {label}.")
-        elif f["inView"] and _screenshot_focus(page, f) is False:
-            res.add(f["owner"], "2.4.7", f"Nessun indicatore di focus visibile: {label} appare identico con e senza focus.")
+        elif f["inView"]:
+            shown = _screenshot_focus(page, f)
+            if shown is False:
+                res.add(f["owner"], "2.4.7", f"Nessun indicatore di focus visibile: {label} appare identico con e senza focus.")
+            elif shown and f["owner"].get("src"):
+                res.passed(f["owner"], ["2.4.7"])
     return visited, False
 
 
@@ -294,9 +322,9 @@ def _reflow(page, res):
     page.wait_for_timeout(300)
 
 
-def analyze_page(page, url, log=print):
-    _goto(page, url)
-    res = PageResult(page.url, page.title())
+def analyze_page(page, log=print, route=None):
+    """Analizza la pagina già caricata nel browser."""
+    res = PageResult(page.url, page.title(), route)
     for comp in _inject(page):
         res.touch(comp)
     t0, m0 = time.time(), page.evaluate("__a11y.motion()")
@@ -328,36 +356,75 @@ def analyze_page(page, url, log=print):
     return res.as_dict(), page.evaluate("[...document.querySelectorAll('a[href]')].map(a => a.href)")
 
 
+SHAPE = """() => { const m = document.querySelector('main,[role=main]') || document.body;
+  return [...new Set([...m.querySelectorAll('*')].map(e => e.tagName + '.' +
+    (typeof e.className === 'string' ? e.className.trim().split(/\\s+/).sort().join('.') : '')))].sort().join('|'); }"""
+
+
 def _same_site(url, origin):
     u = urlparse(url)
     return u.scheme in ("http", "https") and u.netloc == origin and not SKIP_URL.search(u.path)
 
 
-def scan_site(start_url, max_pages=10, storage_state=None, urls=None, headless=True, log=print):
-    """Analizza start_url e le pagine dello stesso sito raggiunte dai link (o la lista urls)."""
+def scan_site(start_url, max_pages=10, storage_state=None, urls=None, headless=True, log=print,
+              routes=None, sources=None):
+    """Analizza start_url e le pagine dello stesso sito raggiunte dai link (o la lista urls).
+
+    Con le rotte del codice parte anche da quelle senza parametri, analizza una sola URL per
+    rotta (/news/1 e /news/2 sono la stessa pagina) e collega gli elementi ai componenti sources.
+    Senza codice, salta le pagine con lo stesso percorso padre e la stessa struttura di una già vista.
+    """
     origin = urlparse(start_url).netloc
     queue = list(urls or [start_url])
-    done, pages = set(), []
+    if routes and not urls:
+        queue += [urljoin(start_url, r) for r in routes if ":" not in r and "*" not in r]
+    done, done_routes, shapes, pages = set(), set(), {}, []
+
+    def new(u):
+        return u not in done and (match_route(urlparse(u).path, routes) or u) not in done_routes
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=headless)
         context = browser.new_context(viewport=DESKTOP, bypass_csp=True, storage_state=storage_state,
                                       locale="it-IT")
         page = context.new_page()
+        page.a11y_sources = sources or []
         while queue and len(pages) < max_pages:
             url = urldefrag(queue.pop(0))[0]
-            if url in done:
+            if not new(url):
                 continue
             done.add(url)
             log(f"Pagina {len(pages) + 1}/{max_pages}: {url}")
             try:
-                result, links = analyze_page(page, url, log)
+                _goto(page, url)
+                final = urldefrag(page.url)[0]
+                path = urlparse(final).path or "/"
+                route = match_route(path, routes)
+                key = route or urlparse(final)._replace(query="").geturl()
+                if urlparse(final).netloc != origin:
+                    log(f"  reindirizzata fuori dal sito ({urlparse(final).netloc}, es. login): saltata")
+                    continue
+                if final != url and (final in done or key in done_routes):
+                    log(f"  reindirizzata a {final}, già analizzata")
+                    continue
+                parent = path.rstrip("/").rsplit("/", 1)[0]
+                if not route and parent:
+                    # ponytail: firma = insieme di tag+classi del contenuto principale; due pagine sorelle
+                    # con lo stesso template (es. /regione/piemonte e /regione/lombardia) sono una sola pagina
+                    shape = (parent, page.evaluate(SHAPE))
+                    if shape in shapes:
+                        log(f"  stessa struttura di {shapes[shape]}: saltata")
+                        done.add(final)
+                        continue
+                    shapes[shape] = path
+                result, links = analyze_page(page, log, route)
             except PlaywrightError as e:
                 log(f"  errore: {e.message.splitlines()[0]}")
                 continue
-            done.add(urldefrag(result["url"])[0])
+            done.add(final)
+            done_routes.add(key)
             pages.append(result)
             if not urls:
-                queue += [u for u in (urldefrag(x)[0] for x in links) if _same_site(u, origin) and u not in done]
+                queue += [u for u in (urldefrag(x)[0] for x in links) if _same_site(u, origin) and new(u)]
         browser.close()
     return pages
 

@@ -10,7 +10,7 @@ from flask import flash, redirect, request, url_for
 import database
 from database import get_db
 from extensions import app
-from scanner.store import import_results
+from scanner.store import code_sources, import_results
 from services.lookups import get_project
 
 # Un'analisi alla volta per progetto; lo stato vive in memoria finché il server resta acceso.
@@ -23,7 +23,8 @@ def _session_path(project_id):
 
 @app.context_processor
 def inject_scan():
-    return {"scan_job": JOBS.get, "scan_session": lambda pid: os.path.exists(_session_path(pid))}
+    return {"scan_job": JOBS.get, "scan_session": lambda pid: os.path.exists(_session_path(pid)),
+            "scan_dir_ok": lambda d: bool(d) and os.path.isdir(d)}
 
 
 def _start(project_id, target, *args):
@@ -44,19 +45,26 @@ def _start(project_id, target, *args):
     threading.Thread(target=run, daemon=True).start()
 
 
-def _scan(log, project_id, kind, source, max_pages, session):
-    if kind == "live":
-        from scanner.live import scan_site
-        pages = scan_site(source, max_pages=max_pages, storage_state=session, log=log)
-    else:
-        from scanner.static import scan_project
-        pages = scan_project(source, log=log)
+def _scan(log, project_id, code_dir, url, max_pages, session):
+    """Prima il codice (rotte e componenti), poi il sito live che si aggancia a quanto trovato."""
     db = get_db()
-    stats = import_results(db, project_id, pages, kind)
-    db.close()
-    JOBS[project_id]["esito"] = stats
-    log(f"Importati: {stats['pagine']} pagine nuove, {stats['componenti']} componenti nuovi, "
-        f"{stats['anomalie']} non conformità.")
+    try:
+        if code_dir:
+            from scanner.static import scan_project
+            stats = import_results(db, project_id, scan_project(code_dir, log=log), "codice")
+            log(f"Codice: {stats['pagine']} pagine nuove, {stats['componenti']} componenti nuovi, "
+                f"{stats['anomalie']} non conformità.")
+        if url:
+            from scanner.live import scan_site
+            routes, sources = code_sources(db, project_id)
+            pages = scan_site(url, max_pages=max_pages, storage_state=session, log=log, routes=routes, sources=sources)
+            stats = import_results(db, project_id, pages, "live")
+            log(f"Live: {stats['pagine']} pagine nuove, {stats['componenti']} componenti nuovi, "
+                f"{stats['collegati']} collegati al codice, {stats['anomalie']} non conformità "
+                f"({stats['confermate']} confermano il codice, {stats['smentite']} rilevazioni del codice smentite).")
+        JOBS[project_id]["esito"] = stats
+    finally:
+        db.close()
 
 
 def _login(log, url, path):
@@ -82,29 +90,33 @@ def start_scan(platform_slug, project_slug):
     if job and job["stato"] == "in corso":
         flash("C'è già un'analisi in corso per questo progetto.", "error")
         return back
-    kind = request.form.get("modo")
-    if kind == "live":
-        source = request.form.get("url", "").strip()
-        if urlparse(source).scheme not in ("http", "https") or not urlparse(source).netloc:
+    code_dir = url = session = None
+    max_pages = 10
+    if request.form.get("codice"):
+        code_dir = request.form.get("cartella", "").strip().strip('"')
+        if not code_dir or not Path(code_dir).is_dir():
+            flash("Cartella del progetto non trovata sul computer che esegue il tracker.", "error")
+            return back
+        db = get_db()
+        db.execute("UPDATE projects SET code_dir = ? WHERE id = ?", (code_dir, project["id"]))
+        db.commit()
+        db.close()
+    if request.form.get("live"):
+        url = request.form.get("url", "").strip()
+        if urlparse(url).scheme not in ("http", "https") or not urlparse(url).netloc:
             flash("Inserisci un URL completo (http:// o https://).", "error")
             return back
         try:
             max_pages = min(max(int(request.form.get("pagine", 10)), 1), 100)
         except ValueError:
-            max_pages = 10
+            pass
         session = _session_path(project["id"]) if request.form.get("usa_sessione") else None
         if session and not os.path.exists(session):
             session = None
-    elif kind == "codice":
-        source = request.form.get("cartella", "").strip().strip('"')
-        if not source or not Path(source).is_dir():
-            flash("Cartella del progetto non trovata sul computer che esegue il tracker.", "error")
-            return back
-        max_pages, session = None, None
-    else:
-        flash("Modalità di analisi non valida.", "error")
+    if not code_dir and not url:
+        flash("Scegli almeno un'analisi: codice o sito live.", "error")
         return back
-    _start(project["id"], _scan, project["id"], kind, source, max_pages, session)
+    _start(project["id"], _scan, project["id"], code_dir, url, max_pages, session)
     flash("Analisi avviata: i risultati vengono importati al termine.", "ok")
     return back
 

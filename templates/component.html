@@ -64,6 +64,8 @@
           <label class="sr-only" for="note_{{ e.id }}">Note per {{ e.code }}</label>
           <textarea name="note_{{ e.id }}" id="note_{{ e.id }}"
                     placeholder="Perché non è conforme? Come riprodurre?">{{ e.note }}</textarea>
+          <button type="button" class="btn-secondary btn-sm note-open" data-target="note_{{ e.id }}"
+                  data-code="{{ e.code }}" aria-haspopup="dialog">Espandi note di {{ e.code }}</button>
         </td>
         <td>
           <button type="submit" class="btn-danger btn-sm"
@@ -80,6 +82,38 @@
     <button type="submit"><span aria-hidden="true">💾</span> Salva tutte le valutazioni</button>
   </div>
 </form>
+
+<dialog id="note-dialog" class="note-dialog" aria-labelledby="note-dialog-title">
+  <form method="dialog">
+    <h2 id="note-dialog-title" style="margin-top:0">Note</h2>
+    <label for="note-dialog-text">Motivazione / note</label>
+    <textarea id="note-dialog-text" placeholder="Perché non è conforme? Come riprodurre?"></textarea>
+    <p>
+      <button value="ok">Applica</button>
+      <button value="annulla" class="btn-secondary">Annulla</button>
+    </p>
+  </form>
+</dialog>
+<script>
+  // Il testo torna nella textarea della riga solo con "Applica"; il salvataggio resta quello del form.
+  (function () {
+    const dlg = document.getElementById('note-dialog');
+    const txt = document.getElementById('note-dialog-text');
+    let target = null;
+    document.querySelectorAll('.note-open').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        target = document.getElementById(btn.dataset.target);
+        document.getElementById('note-dialog-title').textContent = 'Note per ' + btn.dataset.code;
+        txt.value = target.value;
+        dlg.returnValue = '';
+        dlg.showModal();
+      });
+    });
+    dlg.addEventListener('close', function () {
+      if (dlg.returnValue === 'ok' && target) target.value = txt.value;
+    });
+  })();
+</script>
 
 {% if remaining %}
 <div class="card">

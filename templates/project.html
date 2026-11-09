@@ -33,54 +33,78 @@
 </div>
 
 {% set job = scan_job(project.id) %}
-<details class="card" {% if job %}open{% endif %}>
-  <summary>Analisi automatica</summary>
+<div class="card">
+  <h2 style="margin-top:0">Analisi automatica</h2>
   {% if job %}
-  <div role="status" style="margin-top:1rem">
+  <div role="status">
     <p><strong>Ultima analisi: {{ job.stato }}</strong></p>
     <pre class="report-meta" style="white-space:pre-wrap">{{ job.log|join('\n') }}</pre>
   </div>
   {% if job.stato == 'in corso' %}<script>setTimeout(() => location.reload(), 5000);</script>{% endif %}
   {% endif %}
-  <form method="post" action="{{ url_for('start_scan', platform_slug=project.platform_slug, project_slug=project.slug) }}" style="margin-top:1rem">
-    <input type="hidden" name="modo" value="live">
-    <h3>Sito in esecuzione (deployato o localhost)</h3>
-    <p class="report-meta">Browser reale: regole axe-core, contrasto misurato sui pixel, giro completo con Tab
-      (focus visibile, coperto, trappole), elementi cliccabili non raggiungibili da tastiera, menu che si aprono
-      solo col mouse, reflow a 320px, caroselli senza pausa.</p>
-    <div class="form-row">
-      <div>
-        <label for="sc-url">URL di partenza *</label>
-        <input type="url" id="sc-url" name="url" required value="{{ project.url }}" placeholder="https://… o http://localhost:4200">
+  <p><button type="button" id="scan-open" aria-haspopup="dialog"
+             {% if job and job.stato == 'in corso' %}disabled{% endif %}>Avvia analisi automatica…</button></p>
+</div>
+
+<dialog id="scan-dialog" class="modal" aria-labelledby="scan-title">
+  <h2 id="scan-title" style="margin-top:0">Analisi automatica</h2>
+  <p class="report-meta">Basta il sito live. Se il progetto ha già un'analisi del codice (fatta ora o in passato),
+    il live si aggancia a rotte e componenti trovati: le pagine vengono unite per rotta, i componenti prendono
+    il nome dal codice e le rilevazioni del codice vengono confermate o smentite dal comportamento reale.</p>
+  <form method="post" action="{{ url_for('start_scan', platform_slug=project.platform_slug, project_slug=project.slug) }}">
+    <h3><label><input type="checkbox" name="codice" value="1" data-toggles="sc-code" {% if scan_dir_ok(project.code_dir) %}checked{% endif %}>
+      Codice sorgente (facoltativo)</label></h3>
+    <fieldset id="sc-code">
+      <p class="report-meta">Angular, React/Next, Vue/Nuxt, Svelte o HTML: rotte, componenti caricati da ciascuna, template.</p>
+      <label for="sc-dir">Cartella del progetto (quella con package.json) *</label>
+      <input type="text" id="sc-dir" name="cartella" required value="{{ project.code_dir or '' }}" placeholder="C:\progetti\mio-frontend">
+    </fieldset>
+    <h3><label><input type="checkbox" name="live" value="1" data-toggles="sc-live" checked> Sito live</label></h3>
+    <fieldset id="sc-live">
+      <p class="report-meta">Browser reale dall'URL radice: una pagina per rotta, regole axe-core, contrasto sui pixel,
+        giro con Tab, elementi non raggiungibili da tastiera, menu solo col mouse, reflow a 320px, caroselli.</p>
+      <div class="form-row">
+        <div>
+          <label for="sc-url">URL radice *</label>
+          <input type="url" id="sc-url" name="url" required value="{{ project.url }}" placeholder="https://… o http://localhost:4200">
+        </div>
+        <div>
+          <label for="sc-pages">Pagine massime</label>
+          <input type="number" id="sc-pages" name="pagine" min="1" max="100" value="20">
+        </div>
       </div>
-      <div>
-        <label for="sc-pages">Pagine massime</label>
-        <input type="number" id="sc-pages" name="pagine" min="1" max="100" value="10">
-      </div>
-    </div>
-    <p><label><input type="checkbox" name="usa_sessione" {% if scan_session(project.id) %}checked{% else %}disabled{% endif %}>
-      Usa la sessione di login salvata{% if not scan_session(project.id) %} (nessuna sessione salvata){% endif %}</label></p>
-    <p><button type="submit">Analizza il sito</button></p>
+      <p><label><input type="checkbox" name="usa_sessione" {% if scan_session(project.id) %}checked{% else %}disabled{% endif %}>
+        Usa la sessione di login salvata{% if not scan_session(project.id) %} (nessuna sessione salvata){% endif %}</label></p>
+    </fieldset>
+    <p>
+      <button type="submit">Avvia</button>
+      <button type="button" class="btn-secondary" data-close>Annulla</button>
+    </p>
   </form>
   <form method="post" action="{{ url_for('scan_login', platform_slug=project.platform_slug, project_slug=project.slug) }}">
+    <h3>Aree autenticate</h3>
     <div class="form-row">
       <div>
-        <label for="sc-login">Pagina di login (per aree autenticate)</label>
+        <label for="sc-login">Pagina di login</label>
         <input type="url" id="sc-login" name="url" value="{{ project.url }}" placeholder="https://…/login">
       </div>
     </div>
     <p><button type="submit" class="btn-secondary">Apri il browser per il login</button></p>
   </form>
-  <form method="post" action="{{ url_for('start_scan', platform_slug=project.platform_slug, project_slug=project.slug) }}">
-    <input type="hidden" name="modo" value="codice">
-    <h3>Codice sorgente</h3>
-    <p class="report-meta">Angular, React/Next, Vue/Nuxt, Svelte o HTML: ricava le rotte, i componenti caricati
-      da ciascuna e analizza i template.</p>
-    <label for="sc-dir">Cartella del progetto (quella con package.json) *</label>
-    <input type="text" id="sc-dir" name="cartella" required placeholder="C:\progetti\mio-frontend">
-    <p><button type="submit">Analizza il codice</button></p>
-  </form>
-</details>
+</dialog>
+<script>
+  (function () {
+    const dlg = document.getElementById('scan-dialog');
+    document.getElementById('scan-open').addEventListener('click', () => dlg.showModal());
+    dlg.querySelector('[data-close]').addEventListener('click', () => dlg.close());
+    // un'analisi spenta disabilita i suoi campi (e i loro required)
+    dlg.querySelectorAll('[data-toggles]').forEach((cb) => {
+      const sync = () => { document.getElementById(cb.dataset.toggles).disabled = !cb.checked; };
+      cb.addEventListener('change', sync);
+      sync();
+    });
+  })();
+</script>
 
 <h2>Pagine ({{ pages|length }})</h2>
 {% if pages %}

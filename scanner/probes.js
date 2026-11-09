@@ -79,6 +79,27 @@
   ];
   const CONSENT = /cookie|consent|gdpr|iubenda|cmp|fc-consent|onetrust|didomi/i;
 
+  // Nomi normalizzati dei componenti trovati nel codice: un elemento appartiene al primo antenato
+  // custom element (app-foo → foo) o, in mancanza, alla prima classe/id con lo stesso nome.
+  const norm = (s) => (s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+  let sources = new Set();
+  const setSources = (names) => { sources = new Set(names.map(norm)); };
+  const src = (el) => {
+    if (!sources.size) return '';
+    const chain = [];
+    for (let e = el; e && e.nodeType === 1; e = e.parentElement) chain.push(e);
+    for (const e of chain) {
+      const t = e.tagName.toLowerCase();
+      if (!t.includes('-')) continue;
+      for (const n of [norm(t), norm(t.slice(t.indexOf('-') + 1))]) if (sources.has(n)) return n;
+    }
+    for (const e of chain) {
+      const toks = [e.id, ...(typeof e.className === 'string' ? e.className.split(/\s+/) : [])];
+      for (const n of toks.map(norm)) if (n && sources.has(n)) return n;
+    }
+    return '';
+  };
+
   const roots = [];
   const rootIndex = new Map();
   const groups = new Map();
@@ -114,7 +135,7 @@
         addRoot(el, t, CONSENT.test(sig) ? 'Banner cookie/consenso' : label);
       }
     }
-    return roots.map(({ type, name, location }) => ({ type, name, location }));
+    return list();
   };
 
   const ORPHAN_TYPE = (el) => {
@@ -150,7 +171,7 @@
 
   const own = (el) => {
     const { type, name, location } = roots[ownIdx(el)];
-    return { type, name, location };
+    return { type, name, location, src: src(el) };
   };
 
   const query = (target) => {
@@ -288,8 +309,8 @@
     return { min: at(0), p10: at(0.1), median: at(0.5) };
   };
 
-  const list = () => roots.map(({ type, name, location }) => ({ type, name, location }));
+  const list = () => roots.map(({ el, type, name, location }) => ({ type, name, location, src: src(el) }));
 
-  window.__a11y = { components, own, query, focusInfo, unreached, clickCandidates, toggles, state, motion,
+  window.__a11y = { setSources, components, own, query, focusInfo, unreached, clickCandidates, toggles, state, motion,
     cssPath, visible, accName, list, textInfo, hideText, bgContrast };
 })();

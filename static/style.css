@@ -88,6 +88,10 @@ button:hover, .btn:hover { background: var(--blu-scuro); }
 .crit-status { display: flex; gap: .8rem; flex-wrap: wrap; }
 .crit-status label { font-weight: 400; display: inline-flex; align-items: center; gap: .3rem; margin: 0; font-size: .85rem; }
 .crit-note textarea { min-height: 2.4rem; }
+.crit-note .note-open { margin-top: .3rem; }
+.note-dialog { width: min(90vw, 50rem); border: 1px solid var(--bordo); border-radius: 8px; padding: 1.2rem; }
+.note-dialog::backdrop { background: rgba(0, 0, 0, .45); }
+.note-dialog textarea { min-height: 50vh; resize: vertical; }
 fieldset { border: 0; padding: 0; margin: 0; }
 legend { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
 
@@ -109,3 +113,6 @@ details.history summary { cursor: pointer; font-weight: 600; }
   a { color: inherit; text-decoration: none; }
   main { padding: 0; }
 }
+.modal { width: min(92vw, 46rem); max-height: 90vh; border: 1px solid var(--bordo); border-radius: 8px; padding: 1.2rem; }
+.modal::backdrop { background: rgba(0, 0, 0, .45); }
+.modal fieldset:disabled { opacity: .55; }

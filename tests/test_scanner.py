@@ -88,7 +88,7 @@ def test_angular():
     names = [p["name"] for p in pages]
     assert names == ["index.html (codice)", "Layout comune (codice)", "/ (codice)", "/area/profilo (codice)"], names
     assert codes(pages, "index.html (codice)") == {"index": ["1.4.4", "3.1.1"]}
-    assert codes(pages, "Layout comune (codice)") == {"app": [], "header": ["4.1.2"]}
+    assert codes(pages, "Layout comune (codice)") == {"root": [], "header": ["4.1.2"]}
     home = codes(pages, "/ (codice)")
     assert home["home"] == ["1.1.1", "2.1.1", "2.4.7", "4.1.2"], home
     assert home["gallery"] == ["1.3.1", "3.3.2"], home
@@ -127,6 +127,48 @@ def test_import():
         assert again["pagine"] == 0 and again["componenti"] == 0, again
         n = db.execute("SELECT COUNT(*) FROM evaluations WHERE status = 'non_conforme'").fetchone()[0]
         assert n == first["anomalie"], n
+        db.close()
+
+
+
+def test_live_merge():
+    from scanner.store import match_route
+    assert match_route("/news/42", ["/news", "/news/:id", "/**"]) == "/news/:id"
+    assert match_route("/", ["/", "/**"]) == "/" and match_route("/x/y", ["/news"]) is None
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as d:
+        import database
+        database.DB_PATH = os.path.join(d, "t.db")
+        from scanner.store import code_sources, import_results
+        database.init_db()
+        db = database.get_db()
+        pl = db.execute("INSERT INTO platforms (name, slug) VALUES ('p', 'p')").lastrowid
+        pr = db.execute("INSERT INTO projects (name, slug, platform_id) VALUES ('x', 'x', ?)", (pl,)).lastrowid
+        import_results(db, pr, run(ANGULAR), "codice")
+        routes, sources = code_sources(db, pr)
+        assert set(routes) == {"/", "/area/profilo"} and "header" in sources, (routes, sources)
+        live = [{"name": "/", "url": "http://x/", "route": "/", "components": [
+            # header (layout) con lo stesso criterio del codice: conferma
+            {"type": "Navbar / Navigazione", "name": "Menu principale", "location": "nav", "src": "header",
+             "findings": [{"code": "4.1.2", "note": "bottone senza nome"}], "passed": []},
+            # home: axe ha verificato 1.1.1 senza violazioni, la rilevazione del codice è smentita
+            {"type": "Testo / Contenuto", "name": "Testo in «pagina»", "location": "main", "src": "home",
+             "findings": [], "passed": ["1.1.1"]},
+            {"type": "Link", "name": "Link in «pagina»", "location": "body", "src": "",
+             "findings": [{"code": "2.4.4", "note": "link vago"}], "passed": []}]}]
+        stats = import_results(db, pr, live, "live")
+        assert stats["pagine"] == 0 and stats["componenti"] == 1 and stats["collegati"] == 2, stats
+        assert stats["confermate"] == 1 and stats["smentite"] == 1, stats
+        assert db.execute("SELECT url FROM pages WHERE route = '/'").fetchone()[0] == "http://x/"
+        assert db.execute("SELECT name FROM components WHERE source = 'header'").fetchone()[0] == "header — Menu principale"
+        st = {r[0]: r[1] for r in db.execute("""SELECT c.source || ' ' || cr.code, e.status FROM evaluations e
+              JOIN components c ON c.id = e.component_id JOIN criteria cr ON cr.id = e.criterion_id""")}
+        assert st["home 1.1.1"] == "da_verificare" and st["header 4.1.2"] == "non_conforme", st
+        # live senza codice e codice importato dopo: la pagina live viene adottata dalla rotta
+        pr2 = db.execute("INSERT INTO projects (name, slug, platform_id) VALUES ('y', 'y', ?)", (pl,)).lastrowid
+        import_results(db, pr2, [{"name": "/area/profilo", "url": "http://x/area/profilo", "components": []}], "live")
+        assert import_results(db, pr2, run(ANGULAR), "codice")["pagine"] == 3
+        assert db.execute("SELECT route FROM pages WHERE project_id = ? AND url = 'http://x/area/profilo'",
+                          (pr2,)).fetchone()[0] == "/area/profilo"
         db.close()
 
 

@@ -12,7 +12,7 @@ import json
 import sys
 
 from database import get_db, init_db
-from scanner.store import import_results
+from scanner.store import code_sources, import_results
 
 
 def main():
@@ -37,7 +37,14 @@ def main():
         session = args.sessione
         if args.login:
             session = interactive_login(args.url, session or "data/sessione.json")
-        pages = scan_site(args.url, max_pages=args.pagine, storage_state=session, headless=not args.visibile)
+        routes = sources = None
+        if args.progetto:  # si aggancia a rotte e componenti già trovati dall'analisi del codice
+            init_db()
+            db = get_db()
+            routes, sources = code_sources(db, args.progetto)
+            db.close()
+        pages = scan_site(args.url, max_pages=args.pagine, storage_state=session, headless=not args.visibile,
+                          routes=routes, sources=sources)
         source = "live"
     else:
         from scanner.static import scan_project

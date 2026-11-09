@@ -58,6 +58,7 @@ CREATE TABLE IF NOT EXISTS projects (
     url TEXT DEFAULT '',
     status TEXT DEFAULT 'In corso',
     platform_id INTEGER REFERENCES platforms(id),
+    code_dir TEXT DEFAULT '',
     created_at TEXT DEFAULT (datetime('now', 'localtime'))
 );
 
@@ -67,6 +68,7 @@ CREATE TABLE IF NOT EXISTS pages (
     name TEXT NOT NULL,
     url TEXT DEFAULT '',
     notes TEXT DEFAULT '',
+    route TEXT,                               -- rotta del codice (es. /news/:id) che la pagina rappresenta
     created_at TEXT DEFAULT (datetime('now', 'localtime'))
 );
 
@@ -100,6 +102,7 @@ CREATE TABLE IF NOT EXISTS components (
     name TEXT NOT NULL,
     location TEXT DEFAULT '',
     notes TEXT DEFAULT '',
+    source TEXT,                              -- nome del componente nel codice, se trovato dall'analisi del codice
     created_at TEXT DEFAULT (datetime('now', 'localtime'))
 );
 
@@ -161,6 +164,14 @@ def init_db():
             conn.execute("ALTER TABLE platforms ADD COLUMN slug TEXT")
         if "slug" not in _columns(conn, "projects"):
             conn.execute("ALTER TABLE projects ADD COLUMN slug TEXT")
+        if "code_dir" not in _columns(conn, "projects"):
+            conn.execute("ALTER TABLE projects ADD COLUMN code_dir TEXT DEFAULT ''")
+        if "route" not in _columns(conn, "pages"):
+            conn.execute("ALTER TABLE pages ADD COLUMN route TEXT")
+            conn.execute("UPDATE pages SET route = substr(url, 8) WHERE url LIKE 'codice:/%'")
+        if "source" not in _columns(conn, "components"):
+            conn.execute("ALTER TABLE components ADD COLUMN source TEXT")
+            conn.execute("UPDATE components SET source = name WHERE notes LIKE 'Rilevato automaticamente (codice%'")
 
     # --- Migrazione v3: slug negli URL e ogni progetto appartiene a una piattaforma ---
     # I progetti rimasti senza piattaforma vengono raccolti in una piattaforma "Generale".
