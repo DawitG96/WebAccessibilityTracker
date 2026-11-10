@@ -18,9 +18,17 @@ GENERIC = "Altro / Generico"
 
 
 def _note(items):
-    lines = [f"• {n}" for n in dict.fromkeys(items)]
-    extra = len(lines) - MAX_NOTE_ITEMS
-    return "\n".join(lines[:MAX_NOTE_ITEMS]) + (f"\n… e altre {extra} occorrenze" if extra > 0 else "")
+    """Elenco delle occorrenze: ogni pagina compare sempre; oltre MAX_NOTE_ITEMS si tagliano i doppioni di pagina."""
+    items = list(dict.fromkeys(items))
+    by_page = {}
+    for it in items:
+        m = re.match(r"(/\S*): ", it)
+        by_page.setdefault(m.group(1) if m else "", []).append(it)
+    first = [v[0] for v in by_page.values()]
+    rest = [it for v in by_page.values() for it in v[1:]]
+    shown = set(first + rest[:max(0, MAX_NOTE_ITEMS - len(first))])
+    extra = len(items) - len(shown)
+    return "\n".join(f"• {n}" for n in items if n in shown) + (f"\n… e altre {extra} occorrenze" if extra > 0 else "")
 
 
 def _merge_note(old, source, block):
@@ -60,8 +68,41 @@ def _history(db, e, status, work, note):
                (e["id"], e["status"], status, e["work_status"], work, note))
 
 
-def _apply(db, comp_id, by_code, source, stamp, criteria, stats):
+def _kept(note, source, paths):
+    """Righe «• /pagina: …» del blocco precedente della stessa analisi, per le pagine non rianalizzate ora."""
+    old = next((b for b in re.split(r"(?=\[Analisi automatica )", note or "")
+                if b.startswith(f"[Analisi automatica {source}")), "")
+    return [ln[2:] for ln in old.splitlines() if (m := re.match(r"• (/\S*): ", ln)) and m.group(1) not in paths]
+
+
+MANUAL = "verifica manuale"
+
+
+def _key(f):
+    """Chiave di aggregazione di una rilevazione: «?codice» per le verifiche manuali richieste."""
+    return ("?" if f.get("manual") else "") + f["code"]
+
+
+def _ask(db, comp_id, by_code, stamp, criteria, stats, paths):
+    """Verifiche che l'analisi non può fare da sola: restano «da verificare», con le indicazioni in nota."""
+    for code, notes in by_code.items():
+        if code not in criteria:
+            continue
+        db.execute("INSERT OR IGNORE INTO evaluations (component_id, criterion_id) VALUES (?, ?)",
+                   (comp_id, criteria[code]))
+        e = db.execute("SELECT * FROM evaluations WHERE component_id = ? AND criterion_id = ?",
+                       (comp_id, criteria[code])).fetchone()
+        if e["status"] != "da_verificare":
+            continue  # già valutato (a mano o con una non conformità rilevata)
+        block = f"[Analisi automatica {MANUAL}, {stamp}] — DA VERIFICARE A MANO\n{_note(notes + _kept(e['note'], MANUAL, paths))}"
+        db.execute("UPDATE evaluations SET note = ?, updated_at = datetime('now', 'localtime') WHERE id = ?",
+                   (_merge_note(e["note"], MANUAL, block), e["id"]))
+        stats["da_verificare"] += 1
+
+
+def _apply(db, comp_id, by_code, source, stamp, criteria, stats, paths=()):
     """Marca non conformi i criteri rilevati; non tocca quelli già valutati a mano come conformi/N.A."""
+    _ask(db, comp_id, {k[1:]: v for k, v in by_code.items() if k.startswith("?")}, stamp, criteria, stats, paths)
     for code, notes in by_code.items():
         if code not in criteria:
             continue
@@ -75,7 +116,7 @@ def _apply(db, comp_id, by_code, source, stamp, criteria, stats):
         other = "codice" if source == "live" else "live"
         confirmed = e["status"] == "non_conforme" and f"[Analisi automatica {other}" in (e["note"] or "")
         head = f"[Analisi automatica {source}, {stamp}]" + (f" — conferma la rilevazione {other}" if confirmed else "")
-        note = _merge_note(e["note"], source, f"{head}\n{_note(notes)}")
+        note = _merge_note(e["note"], source, f"{head}\n{_note(notes + _kept(e['note'], source, paths))}")
         work = e["work_status"] if e["status"] == "non_conforme" and e["work_status"] else "aperta"
         if e["status"] != "non_conforme":
             _history(db, e, "non_conforme", work, f"Analisi automatica ({source})")
@@ -153,7 +194,7 @@ def _save_shot(db, page_id, shot, boxes):
     with open(shot_path(page_id), "wb") as f:
         f.write(shot["image"])
     db.execute("UPDATE pages SET shot = ? WHERE id = ?",
-               (json.dumps({"w": shot["w"], "h": shot["h"], "boxes": boxes}), page_id))
+               (json.dumps({"w": shot["w"], "h": shot["h"], "boxes": boxes, "pattern": shot.get("pattern", [])}), page_id))
 
 
 def _human(label):
@@ -170,8 +211,10 @@ def import_results(db, project_id, pages, source):
     types = {r["name"]: r["id"] for r in db.execute("SELECT id, name FROM component_types")}
     criteria = {r["code"]: r["id"] for r in db.execute("SELECT id, code FROM criteria")}
     stats = {"pagine": 0, "componenti": 0, "anomalie": 0, "ignorate": 0, "collegati": 0,
-             "confermate": 0, "non_riscontrate": 0}
+             "confermate": 0, "non_riscontrate": 0, "da_verificare": 0}
     matched = {}  # componente del codice → rilevazioni e verifiche superate su tutte le pagine live
+    reused = {}  # istanza di elemento riusato (link, bottone…) → rilevazioni e occorrenze su tutte le pagine
+    paths = {urlparse(p["url"]).path or "/" for p in pages}
 
     for p in pages:
         page_id = _page_id(db, project_id, p, stats)
@@ -179,15 +222,23 @@ def import_results(db, project_id, pages, source):
         path = urlparse(p["url"]).path or "/"
 
         own, boxes = {}, []
+        for loc, occ in p.get("riuso", {}).items():
+            r = reused.setdefault(loc, {"c": {"type": occ["type"], "name": occ["name"], "location": loc},
+                                        "findings": {}, "where": {}})
+            r["where"][path] = occ["where"]
         for c in p["components"]:
             target = cands.get(c.get("src") or "")
             if target is not None:
                 m = matched.setdefault(target["id"], {"row": target, "findings": {}, "passed": set(), "live": []})
                 where = "" if target["page_id"] == page_id else f"{path}: "
                 for f in c["findings"]:
-                    m["findings"].setdefault(f["code"], []).append(where + f["note"])
+                    m["findings"].setdefault(_key(f), []).append(where + f["note"])
                 m["passed"].update(c.get("passed", []))
                 m["live"].append(c)
+            elif c["location"].startswith("riuso:"):
+                r = reused.setdefault(c["location"], {"c": c, "findings": {}, "where": {}})
+                for f in c["findings"]:
+                    r["findings"].setdefault(_key(f), []).append(f"{path}: {f['note']}")
             else:
                 g = own.setdefault((c["type"], c["name"], c["location"]), {**c, "findings": []})
                 g["findings"] += c["findings"]
@@ -213,7 +264,7 @@ def import_results(db, project_id, pages, source):
                 stats["componenti"] += 1
             by_code = {}
             for f in c["findings"]:
-                by_code.setdefault(f["code"], []).append(f["note"])
+                by_code.setdefault(_key(f), []).append(f["note"])
             _apply(db, comp_id, by_code, source, stamp, criteria, stats)
             if c.get("rect"):
                 boxes.append({"id": comp_id, "rect": c["rect"], "sel": c["location"]})
@@ -233,7 +284,40 @@ def import_results(db, project_id, pages, source):
         label = next((c["name"] for c in roots if _human(c["name"])), None)
         if label and row["name"] == row["source"]:
             db.execute("UPDATE components SET name = ? WHERE id = ?", (f"{row['source']} — {label}", comp_id))
-        _apply(db, comp_id, m["findings"], source, stamp, criteria, stats)
+        _apply(db, comp_id, m["findings"], source, stamp, criteria, stats, paths)
         _unconfirmed(db, comp_id, m["passed"] - set(m["findings"]), stamp, criteria, stats)
+
+    if reused:
+        page_id = _reuse_page(db, project_id)
+        for loc, r in reused.items():
+            c = r["c"]
+            row = db.execute("SELECT id, notes FROM components WHERE page_id = ? AND location = ?", (page_id, loc)).fetchone()
+            if row:
+                comp_id, notes = row["id"], row["notes"]
+            else:
+                type_id = types.get(c["type"]) or types[GENERIC]
+                notes = f"Elemento riusato, rilevato automaticamente ({source}, {stamp}). Occorrenze per pagina:"
+                comp_id = db.execute("INSERT INTO components (page_id, component_type_id, name, location, notes) "
+                                     "VALUES (?, ?, ?, ?, ?)", (page_id, type_id, c["name"], loc, notes)).lastrowid
+                _add_type_criteria(db, comp_id, type_id)
+                stats["componenti"] += 1
+            db.execute("UPDATE components SET notes = ? WHERE id = ?", (_occurrences(notes, r["where"]), comp_id))
+            _apply(db, comp_id, r["findings"], source, stamp, criteria, stats, paths)
     db.commit()
     return stats
+
+
+def _reuse_page(db, project_id):
+    row = db.execute("SELECT id FROM pages WHERE project_id = ? AND url = 'riuso:'", (project_id,)).fetchone()
+    return row["id"] if row else db.execute(
+        "INSERT INTO pages (project_id, name, url, notes) VALUES (?, 'Elementi riusati', 'riuso:', ?)",
+        (project_id, "Link, bottoni e campi con lo stesso stile/implementazione: un componente per tipo, con l'elenco "
+                     "delle pagine e dei contenitori in cui compaiono. Se un'occorrenza non è conforme, lo è l'elemento.")
+    ).lastrowid
+
+
+def _occurrences(notes, by_path):
+    """Aggiorna nelle note le righe «• /pagina: contenitore (n)» delle pagine appena analizzate."""
+    keep = [ln for ln in (notes or "").splitlines() if not any(ln.startswith(f"• {p}: ") for p in by_path)]
+    return "\n".join(keep + [f"• {p}: " + ", ".join(f"{w} ({n})" for w, n in where.items())
+                             for p, where in by_path.items()])

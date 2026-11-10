@@ -128,3 +128,5 @@ details.history summary { cursor: pointer; font-weight: 600; }
   content: attr(data-label); position: absolute; left: 0; top: 100%; background: #111; color: #fff;
   font-size: .8rem; padding: .2rem .4rem; white-space: nowrap; border-radius: 3px;
 }
+.manual-card { border-left: 6px solid var(--giallo); background: var(--giallo-bg); }
+.b-manuale { background: var(--giallo-bg); color: var(--giallo); border: 1px solid var(--giallo); font-weight: 700; }

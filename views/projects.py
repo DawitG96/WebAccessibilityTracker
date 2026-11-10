@@ -1,5 +1,7 @@
 # -*- coding: utf-8 -*-
 """Route per il dettaglio progetto e la gestione delle sue pagine."""
+import re
+
 from flask import flash, redirect, render_template, request, url_for
 
 from database import get_db, unique_slug
@@ -64,8 +66,16 @@ def project_detail(platform_slug, project_slug):
              WHERE c.page_id = p.id AND e.status = 'da_verificare') AS n_da_verificare
         FROM pages p WHERE p.project_id = ? ORDER BY p.created_at""", (project["id"],)).fetchall()
     stats = project_stats(db, project["id"])
+    manual = db.execute("""
+        SELECT c.id AS component_id, c.name AS component_name, p.name AS page_name, cr.code, cr.title, e.note
+        FROM evaluations e JOIN components c ON c.id = e.component_id JOIN pages p ON p.id = c.page_id
+        JOIN criteria cr ON cr.id = e.criterion_id
+        WHERE p.project_id = ? AND e.status = 'da_verificare' AND e.note LIKE '%[Analisi automatica verifica manuale%'
+        ORDER BY p.created_at, c.id""", (project["id"],)).fetchall()
+    # etichette visibili dei bottoni da provare, così si sa subito cosa premere
+    manual = [{**dict(m), "labels": sorted(set(re.findall(r"Bottone (?:di invio )?«([^»]*)»", m["note"])))} for m in manual]
     db.close()
-    return render_template("project.html", project=project, pages=pages,
+    return render_template("project.html", project=project, pages=pages, manual=manual,
                            stats=stats, platforms=platforms)
 
 

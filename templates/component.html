@@ -9,7 +9,9 @@
 </p>
 <h1>{{ comp.name }} <span class="badge b-level">{{ comp.type_name }}</span></h1>
 {% if comp.location %}<p class="report-meta">Posizione: {{ comp.location }}</p>{% endif %}
-{% if comp.notes %}<p>{{ comp.notes }}</p>{% endif %}
+{% if comp.notes %}<p style="white-space:pre-line">{{ comp.notes }}</p>{% endif %}
+{% with project_id=comp.project_id, action=url_for('scan_component', component_id=comp.id),
+        label='Rianalizza questo componente sul sito live' %}{% include "_scan_target.html" %}{% endwith %}
 
 {% if comp.aria_notes %}
 <div class="aria-box">

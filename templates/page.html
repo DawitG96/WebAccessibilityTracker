@@ -9,6 +9,10 @@
 <h1>{{ page.name }}</h1>
 {% if page.url %}<p><a href="{{ page.url }}" target="_blank" rel="noopener">{{ page.url }}</a></p>{% endif %}
 {% if page.notes %}<p>{{ page.notes }}</p>{% endif %}
+{% if page.url.startswith('http') %}
+{% with project_id=page.project_id, action=url_for('scan_page', page_id=page.id),
+        label='Rianalizza questa pagina sul sito live' %}{% include "_scan_target.html" %}{% endwith %}
+{% endif %}
 
 {% if shot %}
 <h2>Mappa della pagina</h2>
@@ -47,6 +51,7 @@
         <span class="badge b-conforme">{{ c.n_conformi }} ✓</span>
         <span class="badge b-non_conforme">{{ c.n_anomalie }} ✗</span>
         <span class="badge b-da_verificare">{{ c.n_da_verificare }} ?</span>
+        {% if c.n_manuali %}<span class="badge b-manuale">{{ c.n_manuali }} da verificare a mano</span>{% endif %}
       </td>
       <td>
         <form class="inline" method="post" action="{{ url_for('delete_component', component_id=c.id) }}"

@@ -85,7 +85,28 @@ cliccabili per aprirne la checklist, e la stessa mappa in JSON (`/pagine/<id>/ma
 selettore, posizione, file del codice e criteri non conformi di ogni componente) per strumenti
 come Playwright o un agente AI.
 
-La cartella del codice viene ricordata per il progetto.
+La cartella del codice viene ricordata per il progetto (bottone «Sfoglia…» per sceglierla: apre la
+finestra di sistema sul computer che esegue il tracker, quindi non dentro Docker).
+
+**Elementi riusati**: link, bottoni, checkbox/switch, select/combobox e slider vengono raggruppati
+per firma (pattern + tag + classi, es. `Link «a.nav-link»`) in un solo componente della pagina
+«Elementi riusati», con l'elenco delle pagine e dei contenitori in cui compaiono. Le rilevazioni
+dicono dove sono state trovate (`/contatti: [header] …`): se un'occorrenza non è conforme, lo è
+l'elemento, e si sa subito quale provare.
+
+**Da verificare a mano**: i bottoni che l'analisi non attiva (potrebbero inviare un modulo o
+cancellare dati) non restano in silenzio: il criterio resta «da verificare» con le indicazioni su
+cosa provare, e la pagina del progetto li elenca in un riquadro in evidenza. Nelle note delle
+rilevazioni ogni pagina in cui il problema compare è sempre elencata; oltre 15 occorrenze si
+tagliano solo i doppioni della stessa pagina.
+
+**Analisi mirata**: dalla pagina («Rianalizza questa pagina») o dal componente («Rianalizza questo
+componente») si rianalizza solo quella URL; per un componente vengono importate solo le sue rilevazioni.
+
+**Pattern noti**: il catalogo `scanner/patterns.py` descrive, per HTML nativo, ruoli ARIA,
+Angular Material, PrimeNG e Bootstrap, come riconoscere ogni pattern, come deve comportarsi da
+tastiera (WAI-ARIA APG) e quali criteri coinvolge. L'analisi live lo usa per i test e la mappa JSON
+riporta le regole dei pattern presenti nella pagina. Vengono segnalate solo le violazioni WCAG.
 
 **Sito in esecuzione** (deployato o in localhost), con un browser Chromium reale:
 
@@ -95,12 +116,17 @@ La cartella del codice viene ricordata per il progetto.
 - regole WCAG 2.0–2.2 A/AA di [axe-core](https://github.com/dequelabs/axe-core) (messaggi in italiano);
 - contrasto **misurato sui pixel** per i testi su immagini, gradienti o sovrapposizioni,
   che axe non sa decidere: lo sfondo viene letto da uno screenshot col testo nascosto;
-- giro completo con **Tab**: focus visibile (confronto screenshot con e senza focus),
-  focus su elementi nascosti o coperti (es. header sticky), trappole da tastiera, cambi di
-  pagina al focus;
+- giro completo con **Tab**: focus visibile e **contrasto dell'indicatore di focus** (confronto
+  pixel per pixel con e senza focus: serve un'area con contrasto ≥ 3:1), focus su elementi
+  nascosti o coperti (es. header sticky), trappole da tastiera, cambi di pagina al focus;
 - elementi cliccabili **non raggiungibili da tastiera** e senza ruolo;
-- menu/toggle provati con Invio e Spazio e poi col click: segnala quelli che funzionano solo
-  col mouse e quelli che non aggiornano `aria-expanded` (anche in vista mobile);
+- menu/toggle e widget personalizzati (`role=button`, `tab`, `checkbox`, `combobox`…) provati coi
+  tasti attesi per il ruolo e poi col click: segnala quelli che funzionano solo col mouse e quelli
+  che non aggiornano `aria-expanded` (anche in vista mobile);
+- **dialog** aperti da un controllo: nome accessibile, focus che entra all'apertura, focus
+  trattenuto se modale, uscita con Esc o bottone di chiusura, focus che torna a chi l'ha aperto;
+- tab, menu, listbox e slider con tabindex «roving»: le frecce devono raggiungere gli elementi
+  fuori dal giro di Tab;
 - reflow a 320px e caroselli che si muovono da soli senza pausa.
 
 Il crawl segue i link dello stesso sito ed evita quelli di logout. Per le **aree

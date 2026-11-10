@@ -7,6 +7,7 @@ from flask import flash, jsonify, redirect, render_template, request, send_file,
 
 from database import get_db
 from extensions import app
+from scanner.patterns import rules_for
 from scanner.store import shot_path
 
 
@@ -42,7 +43,9 @@ def page_detail(page_id):
           (SELECT COUNT(*) FROM evaluations e WHERE e.component_id = c.id) AS n_criteri,
           (SELECT COUNT(*) FROM evaluations e WHERE e.component_id = c.id AND e.status = 'conforme') AS n_conformi,
           (SELECT COUNT(*) FROM evaluations e WHERE e.component_id = c.id AND e.status = 'non_conforme') AS n_anomalie,
-          (SELECT COUNT(*) FROM evaluations e WHERE e.component_id = c.id AND e.status = 'da_verificare') AS n_da_verificare
+          (SELECT COUNT(*) FROM evaluations e WHERE e.component_id = c.id AND e.status = 'da_verificare') AS n_da_verificare,
+          (SELECT COUNT(*) FROM evaluations e WHERE e.component_id = c.id AND e.status = 'da_verificare'
+             AND e.note LIKE '%[Analisi automatica verifica manuale%') AS n_manuali
         FROM components c JOIN component_types t ON t.id = c.component_type_id
         WHERE c.page_id = ? ORDER BY c.created_at""", (page_id,)).fetchall()
     types = db.execute("SELECT * FROM component_types ORDER BY name").fetchall()
@@ -93,7 +96,8 @@ def page_map(page_id):
         c["elementi"].append({"selettore": b["sel"], "riquadro": b["rect"]})
     return jsonify(pagina={"id": page["id"], "nome": page["name"], "url": page["url"], "rotta": page["route"]},
                    screenshot=url_for("page_screenshot", page_id=page_id, _external=True),
-                   dimensioni={"w": shot["w"], "h": shot["h"]}, componenti=list(comps.values()))
+                   dimensioni={"w": shot["w"], "h": shot["h"]}, componenti=list(comps.values()),
+                   regole=rules_for(shot.get("pattern", [])))
 
 
 @app.route("/pagine/<int:page_id>/componenti/nuovo", methods=["POST"])

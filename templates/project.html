@@ -126,6 +126,21 @@
   })();
 </script>
 
+{% if manual %}
+<div class="card manual-card">
+  <h2 style="margin-top:0">Da verificare a mano ({{ manual|length }})</h2>
+  <p class="report-meta">Controlli che l'analisi automatica non ha potuto fare (es. bottoni che non attiva per non
+    inviare moduli o cancellare dati): non sono conformità, vanno provati a mano. Le indicazioni sono nelle note.</p>
+  <ul>
+    {% for m in manual %}
+    <li><a href="{{ url_for('component_detail', component_id=m.component_id) }}">{{ m.component_name }}</a>
+      <small>({{ m.page_name }})</small> — {{ m.code }} {{ m.title }}
+      {% if m.labels %}<br><small>Da provare: «{{ m.labels|join('», «') }}»</small>{% endif %}</li>
+    {% endfor %}
+  </ul>
+</div>
+{% endif %}
+
 <h2>Pagine ({{ pages|length }})</h2>
 {% if pages %}
 <table>

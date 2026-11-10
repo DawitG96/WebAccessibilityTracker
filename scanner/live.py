@@ -16,6 +16,7 @@ from urllib.parse import urldefrag, urljoin, urlparse
 from playwright.sync_api import Error as PlaywrightError
 from playwright.sync_api import sync_playwright
 
+from scanner.patterns import PROBE_CONFIG
 from scanner.store import match_route
 
 HERE = Path(__file__).parent
@@ -48,10 +49,12 @@ class PageResult:
         self.passes.setdefault(key, set())
         return self.components.setdefault(key, [])
 
-    def add(self, owner, codes, note):
+    def add(self, owner, codes, note, manual=False):
         bucket = self.touch(owner)
+        if owner.get("where"):  # istanza riusata: si annota in quale contenitore è stata trovata
+            note = f"[{owner['where']}] {note}"
         for code in ([codes] if isinstance(codes, str) else codes):
-            bucket.append({"code": code, "note": note})
+            bucket.append({"code": code, "note": note, **({"manual": True} if manual else {})})
 
     def passed(self, owner, codes):
         self.touch(owner)
@@ -74,6 +77,7 @@ def _inject(page):
     page.evaluate(AXE)
     page.evaluate(PROBES)
     page.evaluate("(n) => __a11y.setSources(n)", getattr(page, "a11y_sources", []))
+    page.evaluate("(c) => __a11y.config(c)", PROBE_CONFIG)
     _mark_click_listeners(page)
     for comp in page.evaluate("__a11y.components()"):
         yield comp
@@ -178,7 +182,10 @@ def _screenshot_focus(page, info):
     page.evaluate("document.activeElement && document.activeElement.blur()")
     blurred = page.screenshot(clip=clip, animations="disabled")
     page.evaluate("(s) => { const e = __a11y.query(s); e && e.focus({ preventScroll: true }); }", info["sel"])
-    return focused != blurred
+    if focused == blurred:
+        return {"changed": 0, "strong": 0, "max": 1}
+    return page.evaluate("([a, b]) => __a11y.focusDelta(a, b)",
+                         [base64.b64encode(focused).decode(), base64.b64encode(blurred).decode()])
 
 
 def _settled_focus(page):
@@ -233,11 +240,18 @@ def _keyboard_walk(page, res, max_stops=250):
         elif f["obscured"]:
             res.add(f["owner"], "2.4.11", f"Elemento con focus coperto da {f['obscured']}: {label}.")
         elif f["inView"]:
-            shown = _screenshot_focus(page, f)
-            if shown is False:
+            d = _screenshot_focus(page, f)
+            # area minima con contrasto ≥ 3:1 tra con e senza focus: circa metà del perimetro a 1px
+            need = int(f["rect"]["w"] + f["rect"]["h"])
+            if d is None:
+                pass
+            elif not d["changed"]:
                 res.add(f["owner"], "2.4.7", f"Nessun indicatore di focus visibile: {label} appare identico con e senza focus.")
-            elif shown and f["owner"].get("src"):
-                res.passed(f["owner"], ["2.4.7"])
+            elif d["strong"] < need:
+                res.add(f["owner"], "1.4.11", f"Indicatore di focus poco visibile su {label}: il cambiamento arriva al massimo "
+                                              f"a {d['max']}:1 rispetto allo stato senza focus (richiesto 3:1).")
+            elif f["owner"].get("src"):
+                res.passed(f["owner"], ["2.4.7", "1.4.11"])
     return visited, False
 
 
@@ -255,46 +269,63 @@ def _unreached(page, res, visited):
                 f"<{f['tag']}> «{f['name']}» ha un gestore click ma nessun ruolo: non è annunciato come controllo ({f['sel']}).")
 
 
+KEY_NAMES = {"Enter": "Invio", " ": "Spazio", "ArrowDown": "freccia giù", "ArrowRight": "freccia destra"}
+
+
 def _changed(a, b):
-    return a["vis"] != b["vis"] or a["expanded"] != b["expanded"]
+    return any(a[k] != b[k] for k in ("vis", "expanded", "aria", "dialog"))
+
+
+def _state(page, sel):
+    return page.evaluate("(s) => __a11y.state(s)", sel)
 
 
 def _toggles(page, res, where):
+    """Disclosure e widget personalizzati: attivabili coi tasti attesi per il ruolo? E i dialog che aprono?"""
     start_url = page.url
-    for t in page.evaluate("__a11y.toggles()"):
+    candidates = page.evaluate("__a11y.toggles()")
+    for t in candidates:
         sel, label = t["sel"], f"«{t['name'] or 'senza nome'}» ({t['sel']})"
+        tag = f"[{t['role']}] " if t["role"] else ""
+        keys = "/".join(KEY_NAMES.get(k, k) for k in t["keys"])
         try:
-            s0 = page.evaluate("(s) => __a11y.state(s)", sel)
-            by_kb = False
+            s0 = _state(page, sel)
+            by_kb = None
             if t["focusable"]:
-                for key in ("Enter", " "):
+                for key in t["keys"]:
                     page.evaluate("(s) => __a11y.query(s).focus()", sel)
                     page.keyboard.press(key)
                     page.wait_for_timeout(400)
-                    s1 = page.evaluate("(s) => __a11y.state(s)", sel)
+                    s1 = _state(page, sel)
                     if s1["url"] != start_url:
                         raise _Navigated
                     if _changed(s0, s1):
-                        by_kb = True
+                        by_kb = key
                         break
             if by_kb:
                 after = s1
-                page.keyboard.press(key)
             else:
                 page.click(sel, timeout=2000)
                 page.wait_for_timeout(400)
-                after = page.evaluate("(s) => __a11y.state(s)", sel)
+                after = _state(page, sel)
                 if after["url"] != start_url:
                     raise _Navigated
                 if not _changed(s0, after):
                     continue
                 res.add(t["owner"], "2.1.1",
-                        f"Il controllo {label} si attiva con il click ma non con Invio/Spazio ({where})."
+                        f"{tag}Il controllo {label} si attiva con il click ma non con {keys} ({where})."
                         if t["focusable"] else
-                        f"Il controllo {label} si attiva solo con il mouse: non è focalizzabile ({where}).")
+                        f"{tag}Il controllo {label} si attiva solo con il mouse: non è focalizzabile ({where}).")
+            if after["dialog"] and after["dialog"] != s0["dialog"]:  # aperto da questo controllo
+                _check_dialog(page, res, t, by_kb, label)
+                continue
+            if by_kb:
+                page.keyboard.press(by_kb)
+            else:
                 page.click(sel, timeout=2000)
             page.wait_for_timeout(300)
-            if after["vis"] != s0["vis"] and after["expanded"] == s0["expanded"]:
+            if t["role"] in ("", "button") and after["aria"] == s0["aria"] \
+                    and after["vis"] != s0["vis"] and after["expanded"] == s0["expanded"]:
                 res.add(t["owner"], "4.1.2",
                         f"Il controllo {label} apre/chiude contenuti ma non espone aria-expanded ({where})."
                         if s0["expanded"] is None else
@@ -304,10 +335,91 @@ def _toggles(page, res, where):
             list(_inject(page))
         except PlaywrightError:
             continue
+    return [t["sel"] for t in candidates]
 
 
 class _Navigated(Exception):
     pass
+
+
+def _untested(page, res, tested):
+    """Bottoni non attivati dall'analisi: verifica manuale esplicita, non un silenzio che sembri conformità."""
+    for u in page.evaluate("(t) => __a11y.untested(t)", tested):
+        what = f"«{u['name'] or 'senza nome'}» ({u['sel']})"
+        res.add(u["owner"], "2.4.3", (
+            f"Bottone di invio {what} non provato automaticamente: invia il modulo con errori da tastiera e verifica "
+            "che il focus vada al primo errore o al riepilogo e che i messaggi siano annunciati (3.3.1, 4.1.3)."
+            if u["submit"] else
+            f"Bottone {what} non provato automaticamente: attivalo con Invio e Spazio; se apre un dialog o un menu "
+            "verifica che il focus ci entri, che Esc chiuda e che il focus torni al bottone; se mostra un messaggio, "
+            "che sia annunciato (4.1.3)."), manual=True)
+
+
+def _check_dialog(page, res, t, opener_key, opener):
+    """Dialog aperto da un controllo: nome, focus all'apertura, focus trattenuto se modale, uscita, ritorno del focus."""
+    info = page.evaluate("__a11y.dialogInfo()")
+    if not info:
+        return
+    owner, label = info["owner"], f"«{info['name'] or t['name'] or 'dialog'}» ({info['sel']})"
+    if not info["name"]:
+        res.add(owner, "4.1.2", f"[Dialog] Il dialog {label} non ha un nome accessibile (aria-labelledby sul titolo o aria-label).")
+    if opener_key:  # il focus ha senso valutarlo solo se aperto da tastiera
+        if not info["inside"]:
+            res.add(owner, "2.4.3", f"[Dialog] Aprendo {label} da tastiera il focus resta fuori dal dialog.")
+        elif info["modal"]:
+            for _ in range(15):
+                page.keyboard.press("Tab")
+                page.wait_for_timeout(60)
+                if not page.evaluate("(s) => __a11y.focusedIn(s)", info["sel"]):
+                    res.add(owner, "2.4.3", f"[Dialog] Il dialog modale {label} non trattiene il focus: con Tab si passa "
+                                            "alla pagina sotto.")
+                    break
+    page.keyboard.press("Escape")
+    page.wait_for_timeout(400)
+    if page.evaluate("__a11y.dialogInfo()"):
+        if not info["close"]:
+            res.add(owner, "2.1.2", f"[Dialog] {label} non si chiude con Esc e non ha un bottone di chiusura: "
+                                    "da tastiera non se ne esce.")
+            raise _Navigated  # si ricarica la pagina per chiuderlo
+        page.evaluate("(s) => __a11y.query(s).focus()", info["close"])
+        page.keyboard.press("Enter")
+        page.wait_for_timeout(400)
+        if page.evaluate("__a11y.dialogInfo()"):
+            raise _Navigated
+    if opener_key and not page.evaluate("(s) => __a11y.focusedIn(s)", t["sel"]):
+        res.add(owner, "2.4.3", f"[Dialog] Chiudendo {label} il focus non torna a {opener}, che l'ha aperto.")
+
+
+def _groups(page, res):
+    """Gruppi a tabindex roving (tab, menu, listbox): le frecce devono raggiungere gli elementi fuori dal giro di Tab."""
+    start_url = page.url
+    for g in page.evaluate("__a11y.rovingGroups()"):
+        try:
+            page.evaluate("(s) => __a11y.query(s).focus()", g["first"])
+            probe = "(s) => [document.activeElement && __a11y.cssPath(document.activeElement), __a11y.state(s).aria]"
+            before = page.evaluate(probe, g["sel"])
+            page.keyboard.press(g["key"])
+            page.wait_for_timeout(250)
+            if page.url != start_url:
+                raise _Navigated
+            if page.evaluate(probe, g["sel"]) == before:
+                res.add(g["owner"], "2.1.1", f"[{g['nome']}] In «{g['name']}» solo un elemento è nel giro di Tab e la "
+                                             f"{KEY_NAMES[g['key']]} non raggiunge gli altri ({g['sel']}).")
+        except _Navigated:
+            _goto(page, start_url)
+            list(_inject(page))
+        except PlaywrightError:
+            continue
+    for s in page.evaluate("__a11y.sliders()"):
+        try:
+            page.evaluate("(x) => __a11y.query(x).focus()", s["sel"])
+            before = _state(page, s["sel"])["aria"]
+            page.keyboard.press("ArrowRight")
+            page.wait_for_timeout(200)
+            if _state(page, s["sel"])["aria"] == before:
+                res.add(s["owner"], "2.1.1", f"[Slider] «{s['name']}»: la freccia non cambia il valore (aria-valuenow) ({s['sel']}).")
+        except PlaywrightError:
+            continue
 
 
 def _reflow(page, res):
@@ -348,12 +460,15 @@ def analyze_page(page, log=print, route=None):
         _unreached(page, res, visited)
     else:
         log("  giro con Tab non completato: controllo elementi non raggiungibili saltato")
-    log("  toggle e reflow")
-    _toggles(page, res, "vista desktop")
+    log("  widget, dialog, toggle e reflow")
+    tested = _toggles(page, res, "vista desktop")
+    _untested(page, res, tested)
+    _groups(page, res)
     _reflow(page, res)
     for comp in page.evaluate("__a11y.list()"):
         res.touch(comp)
     result = res.as_dict()
+    result["riuso"] = page.evaluate("__a11y.instances()")
     try:
         result["shot"] = _shot(page, result)
     except PlaywrightError as e:  # senza screenshot la pagina analizzata resta valida
@@ -369,6 +484,7 @@ def _shot(page, result, max_h=12000):
     page.mouse.move(0, 0)
     page.wait_for_timeout(300)
     shot = page.evaluate("__a11y.boxes()")
+    shot["pattern"] = page.evaluate("__a11y.present()")
     shot["w"], shot["h"] = DESKTOP["width"], min(shot["h"], max_h)
     shot["image"] = page.screenshot(full_page=True, type="jpeg", quality=70, animations="disabled",
                                     clip={"x": 0, "y": 0, "width": shot["w"], "height": shot["h"]})

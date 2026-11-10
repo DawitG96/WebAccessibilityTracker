@@ -171,12 +171,77 @@ def test_live_merge():
         st = {r[0]: r[1] for r in db.execute("""SELECT c.source || ' ' || cr.code, e.status FROM evaluations e
               JOIN components c ON c.id = e.component_id JOIN criteria cr ON cr.id = e.criterion_id""")}
         assert st["home 1.1.1"] == "non_conforme" and st["header 4.1.2"] == "non_conforme", st
+        # nelle note ogni pagina compare sempre, anche oltre il limite di occorrenze
+        from scanner.store import _note
+        many = _note([f"/p{i}: x" for i in range(20)] + [f"/p0: y{i}" for i in range(5)])
+        assert all(f"/p{i}: x" in many for i in range(20)) and "altre 5" in many, many
+        # analisi mirata di una pagina: le righe delle altre pagine nel blocco live restano
+        from scanner.store import _kept
+        assert _kept("[Analisi automatica live, x]\n• /a: uno\n• /b: due", "live", {"/b"}) == ["/a: uno"]
         # live senza codice e codice importato dopo: la pagina live viene adottata dalla rotta
         pr2 = db.execute("INSERT INTO projects (name, slug, platform_id) VALUES ('y', 'y', ?)", (pl,)).lastrowid
         import_results(db, pr2, [{"name": "/area/profilo", "url": "http://x/area/profilo", "components": []}], "live")
         assert import_results(db, pr2, run(ANGULAR), "codice")["pagine"] == 3
         assert db.execute("SELECT route FROM pages WHERE project_id = ? AND url = 'http://x/area/profilo'",
                           (pr2,)).fetchone()[0] == "/area/profilo"
+        db.close()
+
+
+
+PATTERN_PAGE = """<!doctype html><html lang="it"><head><title>Prova</title><style>
+  a { color: #000; } a:focus { outline: none; box-shadow: 0 0 0 4px rgba(13, 110, 253, .25); }
+  button:focus, [tabindex]:focus { outline: 3px solid #000; } #dlg { display: none; } #dlg.open { display: block; }
+</style></head><body><main><h1>Prova</h1>
+  <a href="#x">Link con focus debole</a>
+  <div role="button" tabindex="0" id="fake" onclick="box.hidden = !box.hidden">Solo click</div>
+  <div id="box" hidden><a href="#y">dentro</a></div>
+  <button aria-haspopup="dialog" onclick="dlg.classList.add('open')">Apri dialog</button>
+  <div id="dlg" role="dialog" aria-modal="true"><p>Testo</p><button onclick="dlg.classList.remove('open')">Chiudi</button></div>
+  <form onsubmit="return false"><label>Nome <input name="n"></label><button>Invia</button></form>
+  <div role="tablist" aria-label="Schede"><button role="tab" aria-selected="true">A</button>
+    <button role="tab" aria-selected="false" tabindex="-1">B</button></div>
+</main></body></html>"""
+
+
+def test_live_patterns():
+    """Regole note su una pagina locale: focus poco contrastato, widget solo col mouse, dialog, tab senza frecce."""
+    from scanner.live import scan_site
+    with tempfile.TemporaryDirectory() as d:
+        f = Path(d) / "p.html"
+        f.write_text(PATTERN_PAGE, encoding="utf-8")
+        pages = scan_site(f.as_uri(), urls=[f.as_uri()], max_pages=1, log=lambda *_: None)
+    notes = [(x["code"], x["note"]) for c in pages[0]["components"] for x in c["findings"]]
+    def has(code, text):
+        return any(c == code and text in n for c, n in notes)
+    assert has("1.4.11", "Link con focus debole"), notes
+    assert has("2.1.1", "[button] Il controllo «Solo click»"), notes
+    assert has("4.1.2", "[Dialog] Il dialog") and has("2.4.3", "focus resta fuori dal dialog"), notes
+    assert has("2.4.3", "il focus non torna"), notes
+    assert has("2.1.1", "[Tab] In «Schede»"), notes
+    # bottone non attivato dall'analisi: verifica manuale esplicita, non silenzio
+    manual = [x for c in pages[0]["components"] for x in c["findings"] if x.get("manual")]
+    assert any("Bottone di invio «Invia»" in x["note"] for x in manual), manual
+    assert {"Link", "Tab"} <= set(pages[0]["shot"]["pattern"]), pages[0]["shot"]["pattern"]
+    # link e bottoni sono istanze riusate: un componente per firma, con le occorrenze per contenitore
+    link = next(c for c in pages[0]["components"] if c["location"] == "riuso:Link:a")
+    assert link["name"] == "Link «a»" and any("1.4.11" == f["code"] for f in link["findings"]), link
+    assert pages[0]["riuso"]["riuso:Link:a"]["where"], pages[0]["riuso"]
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as d:
+        import database
+        database.DB_PATH = os.path.join(d, "t.db")
+        from scanner.store import import_results
+        database.init_db()
+        db = database.get_db()
+        pl = db.execute("INSERT INTO platforms (name, slug) VALUES ('p', 'p')").lastrowid
+        pr = db.execute("INSERT INTO projects (name, slug, platform_id) VALUES ('x', 'x', ?)", (pl,)).lastrowid
+        import_results(db, pr, pages, "live")
+        notes, status = db.execute("""SELECT c.notes, e.status FROM components c JOIN pages p ON p.id = c.page_id
+            JOIN evaluations e ON e.component_id = c.id JOIN criteria cr ON cr.id = e.criterion_id
+            WHERE p.url = 'riuso:' AND c.name = 'Link «a»' AND cr.code = '1.4.11'""").fetchone()
+        assert status == "non_conforme" and "• /" in notes, (status, notes)
+        n = db.execute("""SELECT COUNT(*) FROM evaluations e WHERE e.status = 'da_verificare'
+                          AND e.note LIKE '%DA VERIFICARE A MANO%Invia%'""").fetchone()[0]
+        assert n == 1, n
         db.close()
 
 

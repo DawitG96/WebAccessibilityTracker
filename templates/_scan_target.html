@@ -1,0 +1,14 @@
+{# Analisi live mirata (pagina o componente) e stato dell'ultima analisi del progetto. #}
+{% set job = scan_job(project_id) %}
+<div class="card">
+  {% if job %}
+  <div role="status">
+    <p style="margin-top:0"><strong>Ultima analisi del progetto: {{ job.stato }}</strong></p>
+    <pre class="report-meta" style="white-space:pre-wrap">{{ job.log[-8:]|join('\n') }}</pre>
+  </div>
+  {% if job.stato == 'in corso' %}<script>setTimeout(() => location.reload(), 5000);</script>{% endif %}
+  {% endif %}
+  <form method="post" action="{{ action }}" class="inline">
+    <button type="submit" class="btn-secondary" {% if job and job.stato == 'in corso' %}disabled{% endif %}>{{ label }}</button>
+  </form>
+</div>
